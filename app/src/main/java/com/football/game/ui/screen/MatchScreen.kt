@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -24,10 +25,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.football.game.core.GameEngine
 import com.football.game.core.GameState
 import com.football.game.core.Vector3
-import com.football.game.model.Player
+import com.football.game.model.Match
+import com.football.game.model.Team
 import com.football.game.ui.component.TouchControls
+import kotlinx.coroutines.delay
 
 /**
  * 比赛屏幕
@@ -36,6 +40,8 @@ import com.football.game.ui.component.TouchControls
 fun MatchScreen(
     homeTeamName: String = "红队",
     awayTeamName: String = "蓝队",
+    homeTeam: Team? = null,
+    awayTeam: Team? = null,
     onMatchEnd: () -> Unit = {}
 ) {
     // 比赛状态
@@ -44,11 +50,58 @@ fun MatchScreen(
     var awayScore by remember { mutableIntStateOf(0) }
     var currentHalf by remember { mutableIntStateOf(1) }
     var isPaused by remember { mutableStateOf(false) }
+    var isFinished by remember { mutableStateOf(false) }
     
     // 球员位置（简化）
     var ballPosition by remember { mutableStateOf(Vector3.ZERO) }
     var ballHeight by remember { mutableFloatStateOf(0f) }
     var hasBall by remember { mutableStateOf(false) }
+    
+    // 创建比赛对象
+    val match = remember {
+        Match(
+            homeTeam = homeTeam ?: Team(id = "home", name = homeTeamName, shortName = "HOM"),
+            awayTeam = awayTeam ?: Team(id = "away", name = awayTeamName, shortName = "AWY")
+        )
+    }
+    
+    // 创建游戏引擎（简化）
+    val gameEngine = remember {
+        GameEngine(
+            match = match,
+            homePlayers = emptyList(),
+            awayPlayers = emptyList()
+        )
+    }
+    
+    // 模拟比赛时间流逝
+    LaunchedEffect(isPaused, isFinished) {
+        if (!isPaused && !isFinished) {
+            while (matchTime < 180f) {  // 每半场3分钟
+                delay(1000L)  // 每秒更新
+                matchTime += 1f
+                
+                // 模拟进球（随机）
+                if (matchTime.toInt() % 60 == 0 && matchTime > 0) {
+                    if (Math.random() > 0.6) {
+                        if (Math.random() > 0.5) {
+                            homeScore++
+                        } else {
+                            awayScore++
+                        }
+                    }
+                }
+                
+                // 半场结束
+                if (matchTime >= 180f && currentHalf == 1) {
+                    currentHalf = 2
+                    matchTime = 0f
+                } else if (matchTime >= 180f && currentHalf == 2) {
+                    isFinished = true
+                }
+            }
+        }
+    }
     
     Box(
         modifier = Modifier
@@ -85,16 +138,57 @@ fun MatchScreen(
                 .padding(16.dp)
         )
         
+        // 暂停按钮
+        if (isPaused) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "暂停",
+                        fontSize = 48.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+        
+        // 比赛结束
+        if (isFinished) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "比赛结束",
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "$homeTeamName $homeScore - $awayScore $awayTeamName",
+                        fontSize = 24.sp,
+                        color = Color.Yellow,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+        }
+        
         // 触屏控制器
         TouchControls(
-            gameEngine = remember { com.football.game.core.GameEngine(
-                match = com.football.game.model.Match(
-                    homeTeam = com.football.game.model.Team(id = "home", name = homeTeamName),
-                    awayTeam = com.football.game.model.Team(id = "away", name = awayTeamName)
-                ),
-                homePlayers = emptyList(),
-                awayPlayers = emptyList()
-            )},
+            gameEngine = gameEngine,
             hasBall = hasBall,
             modifier = Modifier.fillMaxSize()
         )
