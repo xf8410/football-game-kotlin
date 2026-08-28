@@ -15,10 +15,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.football.game.model.League
+import com.football.game.model.Player
 import com.football.game.model.Team
+import com.football.game.ui.screen.EraSelectScreen
 import com.football.game.ui.screen.LeagueScreen
 import com.football.game.ui.screen.MainMenuScreen
 import com.football.game.ui.screen.MatchScreen
+import com.football.game.ui.screen.SettingsScreen
 import com.football.game.ui.screen.TeamSelectScreen
 import com.football.game.ui.theme.FootballGameTheme
 
@@ -48,6 +51,7 @@ fun FootballGameApp() {
     var selectedHomeTeam by remember { mutableStateOf<Team?>(null) }
     var selectedAwayTeam by remember { mutableStateOf<Team?>(null) }
     var selectedLeague by remember { mutableStateOf<League?>(null) }
+    var selectedLegendPlayer by remember { mutableStateOf<Player?>(null) }
 
     when (currentScreen) {
         Screen.MAIN_MENU -> {
@@ -59,11 +63,10 @@ fun FootballGameApp() {
                     currentScreen = Screen.LEAGUE
                 },
                 onCupMode = {
-                    // TODO: 实现杯赛模式
-                    currentScreen = Screen.TEAM_SELECT_HOME
+                    currentScreen = Screen.ERA_SELECT  // 传奇模式
                 },
                 onSettings = {
-                    // TODO: 实现设置页面
+                    currentScreen = Screen.SETTINGS
                 },
                 onExit = {
                     // TODO: 退出应用
@@ -105,12 +108,13 @@ fun FootballGameApp() {
                 MatchScreen(
                     homeTeamName = homeTeam.name,
                     awayTeamName = awayTeam.name,
+                    homeTeam = homeTeam,
+                    awayTeam = awayTeam,
                     onMatchEnd = {
                         currentScreen = Screen.MAIN_MENU
                     }
                 )
             } else {
-                // 如果没有选择球队，返回主菜单
                 currentScreen = Screen.MAIN_MENU
             }
         }
@@ -120,7 +124,6 @@ fun FootballGameApp() {
                 onTeamSelected = { league, team ->
                     selectedLeague = league
                     selectedHomeTeam = team
-                    // AI选择客队
                     val awayTeamRandom = league.teams.filter { it.id != team.id }.randomOrNull()
                     selectedAwayTeam = awayTeamRandom
                     currentScreen = Screen.MATCH
@@ -131,9 +134,33 @@ fun FootballGameApp() {
             )
         }
 
+        Screen.ERA_SELECT -> {
+            EraSelectScreen(
+                onPlayerSelected = { player ->
+                    selectedLegendPlayer = player
+                    // 根据传奇球员选择对应的球队
+                    selectedHomeTeam = Team(
+                        id = player.teamId,
+                        name = player.teamName,
+                        shortName = player.teamName.take(3)
+                    )
+                    // AI选择对手
+                    val allTeams = com.football.game.data.LeagueDatabase.getAllTeams()
+                    selectedAwayTeam = allTeams.filter { it.id != player.teamId }.randomOrNull()
+                    currentScreen = Screen.MATCH
+                },
+                onBack = {
+                    currentScreen = Screen.MAIN_MENU
+                }
+            )
+        }
+
         Screen.SETTINGS -> {
-            // TODO: 设置页面
-            currentScreen = Screen.MAIN_MENU
+            SettingsScreen(
+                onBack = {
+                    currentScreen = Screen.MAIN_MENU
+                }
+            )
         }
 
         Screen.CUP -> {
@@ -153,7 +180,8 @@ enum class Screen {
     MATCH,
     SETTINGS,
     LEAGUE,
-    CUP
+    CUP,
+    ERA_SELECT
 }
 
 @Preview(showBackground = true)
