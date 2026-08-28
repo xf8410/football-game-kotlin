@@ -1,48 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 基础颜色 -->
+    <color name="white">#FFFFFFFF</color>
+    <color name="black">#FF000000</color>
+    
     <!-- 主题颜色 -->
     <color name="primary">#FF388E3C</color>
     <color name="primary_dark">#FF1B5E20</color>
     <color name="primary_light">#FF66BB6A</color>
     <color name="accent">#FF81C784</color>
     
-    <!-- 背景颜色 -->
-    <color name="background_dark">#FF1B1B1F</color>
-    <color name="background_light">#FFF5F5F5</color>
-    
-    <!-- 文字颜色 -->
-    <color name="text_primary">#FFFFFFFF</color>
-    <color name="text_secondary">#FFB0BEC5</color>
-    <color name="text_dark">#FF1C1B1F</color>
-    
     <!-- 球场颜色 -->
     <color name="field_green">#FF2E7D32</color>
     <color name="field_line">#FFFFFFFF</color>
     <color name="field_dark_green">#FF1B5E20</color>
-    
-    <!-- 球队颜色 -->
-    <color name="team_home_red">#FFC62828</color>
-    <color name="team_home_white">#FFFFFFFF</color>
-    <color name="team_away_blue">#FF1565C0</color>
-    <color name="team_away_white">#FFFFFFFF</color>
     
     <!-- UI颜色 -->
     <color name="button_pass">#FF4CAF50</color>
     <color name="button_shoot">#FFF44336</color>
     <color name="button_through">#FF2196F3</color>
     <color name="button_sprint">#FFFF9800</color>
-    <color name="button_tackle">#FF9C27B0</color>
-    <color name="button_switch">#FF607D8B</color>
     
     <!-- 计分板颜色 -->
     <color name="score_bg">#CC000000</color>
     <color name="score_text">#FFFFFFFF</color>
     <color name="time_text">#FFFFFF00</color>
-    
-    <!-- 状态颜色 -->
-    <color name="win_green">#FF4CAF50</color>
-    <color name="lose_red">#FFF44336</color>
-    <color name="draw_yellow">#FFFFC107</color>
     
     <!-- 卡牌颜色 -->
     <color name="yellow_card">#FFFFC107</color>
