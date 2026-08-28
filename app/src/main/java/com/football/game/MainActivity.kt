@@ -14,7 +14,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import com.football.game.model.League
 import com.football.game.model.Team
+import com.football.game.ui.screen.LeagueScreen
 import com.football.game.ui.screen.MainMenuScreen
 import com.football.game.ui.screen.MatchScreen
 import com.football.game.ui.screen.TeamSelectScreen
@@ -45,6 +47,7 @@ fun FootballGameApp() {
     var currentScreen by remember { mutableStateOf(Screen.MAIN_MENU) }
     var selectedHomeTeam by remember { mutableStateOf<Team?>(null) }
     var selectedAwayTeam by remember { mutableStateOf<Team?>(null) }
+    var selectedLeague by remember { mutableStateOf<League?>(null) }
 
     when (currentScreen) {
         Screen.MAIN_MENU -> {
@@ -53,8 +56,7 @@ fun FootballGameApp() {
                     currentScreen = Screen.TEAM_SELECT_HOME
                 },
                 onLeagueMode = {
-                    // TODO: 实现联赛模式
-                    currentScreen = Screen.TEAM_SELECT_HOME
+                    currentScreen = Screen.LEAGUE
                 },
                 onCupMode = {
                     // TODO: 实现杯赛模式
@@ -113,13 +115,24 @@ fun FootballGameApp() {
             }
         }
 
-        Screen.SETTINGS -> {
-            // TODO: 设置页面
-            currentScreen = Screen.MAIN_MENU
+        Screen.LEAGUE -> {
+            LeagueScreen(
+                onTeamSelected = { league, team ->
+                    selectedLeague = league
+                    selectedHomeTeam = team
+                    // AI选择客队
+                    val awayTeamRandom = league.teams.filter { it.id != team.id }.randomOrNull()
+                    selectedAwayTeam = awayTeamRandom
+                    currentScreen = Screen.MATCH
+                },
+                onBack = {
+                    currentScreen = Screen.MAIN_MENU
+                }
+            )
         }
 
-        Screen.LEAGUE -> {
-            // TODO: 联赛页面
+        Screen.SETTINGS -> {
+            // TODO: 设置页面
             currentScreen = Screen.MAIN_MENU
         }
 
