@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 间距 -->
+    <dimen name="spacing_xs">4dp</dimen>
+    <dimen name="spacing_sm">8dp</dimen>
+    <dimen name="spacing_md">16dp</dimen>
+    <dimen name="spacing_lg">24dp</dimen>
+    <dimen name="spacing_xl">32dp</dimen>
+    
+    <!-- 文字大小 -->
+    <dimen name="text_xs">10sp</dimen>
+    <dimen name="text_sm">12sp</dimen>
+    <dimen name="text_md">14sp</dimen>
+    <dimen name="text_lg">18sp</dimen>
+    <dimen name="text_xl">24sp</dimen>
+    <dimen name="text_xxl">32sp</dimen>
+    <dimen name="text_score">48sp</dimen>
+    
+    <!-- 按钮大小 -->
+    <dimen name="button_small">50dp</dimen>
+    <dimen name="button_medium">70dp</dimen>
+    <dimen name="button_large">90dp</dimen>
+    
+    <!-- 摇杆大小 -->
+    <dimen name="joystick_size">150dp</dimen>
+    <dimen name="joystick_knob">30dp</dimen>
+    
+    <!-- 计分板 -->
+    <dimen name="scoreboard_width">200dp</dimen>
+    <dimen name="scoreboard_height">80dp</dimen>
+    
+    <!-- 球员图标 -->
+    <dimen name="player_icon_small">40dp</dimen>
+    <dimen name="player_icon_medium">60dp</dimen>
+    <dimen name="player_icon_large">80dp</dimen>
+    
+    <!-- 球场边距 -->
+    <dimen name="field_padding">16dp</dimen>
+    
+    <!-- 卡片 -->
+    <dimen name="card_width">120dp</dimen>
+    <dimen name="card_height">180dp</dimen>
+    <dimen name="card_corner_radius">8dp</dimen>
+    
+    <!-- 列表项 -->
+    <dimen name="list_item_height">64dp</dimen>
+    <dimen name="list_item_padding">12dp</dimen>
+</resources>
