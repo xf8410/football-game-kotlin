@@ -2,9 +2,11 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, workbench/* ]
-  pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -21,16 +23,13 @@ jobs:
         distribution: 'temurin'
 
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+      uses: gradle/actions/setup-gradle@v4
 
     - name: Build Debug APK
-      run: ./gradlew assembleDebug
+      run: gradle assembleDebug
 
     - name: Build Release APK
-      run: ./gradlew assembleRelease
+      run: gradle assembleRelease
 
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
@@ -43,16 +42,3 @@ jobs:
       with:
         name: release-apk
         path: app/build/outputs/apk/release/*.apk
-
-    - name: Create Release
-      if: github.ref == 'refs/heads/main'
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: v${{ github.run_number }}
-        name: Build ${{ github.run_number }}
-        files: |
-          app/build/outputs/apk/debug/*.apk
-          app/build/outputs/apk/release/*.apk
-        draft: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
