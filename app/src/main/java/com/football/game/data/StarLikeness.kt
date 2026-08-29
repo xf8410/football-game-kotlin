@@ -297,7 +297,7 @@ object StarLikeness {
             AvatarFacialHair.STUBBLE, AvatarFacialHair.GOATEE
         )
         return StarAvatarParams(
-            skinColor = Color(skins[h and 0xFF and (skins.size - 1).inv() + skins.size shr 8 and 0]), // placeholder, corrected below
+            skinColor = Color(skins[(h and 0xFF) % skins.size]),
             hairColor = Color(hairs[(h shr 8 and 0xFF) % hairs.size]),
             hairStyle = styles[(h shr 16 and 0xFF) % styles.size],
             facialHair = beards[(h shr 24 and 0xFF) % beards.size],
