@@ -149,58 +149,58 @@ class GameRenderer : GLSurfaceView.Renderer {
         val halfL = GameState.FIELD_LENGTH / 2
 
         // 外围草皮
-        drawShapeAt(quad, 0f, -0.02f, 0f, 140f, 1f, 190f, 0.12f, 0.36f, 0.19f)
+        drawShapeAt(quad, 0f, -0.02f, 0f, 140f, 1f, 190f, 0f, 0.12f, 0.36f, 0.19f)
 
         // 割草条纹（10 条）
         val stripeLen = GameState.FIELD_LENGTH / 10f
         for (i in 0 until 10) {
             val zc = -halfL + stripeLen * (i + 0.5f)
             if (i % 2 == 0) {
-                drawShapeAt(quad, 0f, 0f, zc, GameState.FIELD_WIDTH, 1f, stripeLen, 0.16f, 0.55f, 0.26f)
+                drawShapeAt(quad, 0f, 0f, zc, GameState.FIELD_WIDTH, 1f, stripeLen, 0f, 0.16f, 0.55f, 0.26f)
             } else {
-                drawShapeAt(quad, 0f, 0f, zc, GameState.FIELD_WIDTH, 1f, stripeLen, 0.14f, 0.50f, 0.23f)
+                drawShapeAt(quad, 0f, 0f, zc, GameState.FIELD_WIDTH, 1f, stripeLen, 0f, 0.14f, 0.50f, 0.23f)
             }
         }
 
         // ---- 白线 ----
         val lw = 0.15f
         // 边线
-        drawShapeAt(quad, -halfW, 0.03f, 0f, lw, 1f, GameState.FIELD_LENGTH + lw, 0.95f, 0.95f, 0.95f)
-        drawShapeAt(quad, halfW, 0.03f, 0f, lw, 1f, GameState.FIELD_LENGTH + lw, 0.95f, 0.95f, 0.95f)
+        drawShapeAt(quad, -halfW, 0.03f, 0f, lw, 1f, GameState.FIELD_LENGTH + lw, 0f, 0.95f, 0.95f, 0.95f)
+        drawShapeAt(quad, halfW, 0.03f, 0f, lw, 1f, GameState.FIELD_LENGTH + lw, 0f, 0.95f, 0.95f, 0.95f)
         // 底线
-        drawShapeAt(quad, 0f, 0.03f, -halfL, GameState.FIELD_WIDTH + lw, 1f, lw, 0.95f, 0.95f, 0.95f)
-        drawShapeAt(quad, 0f, 0.03f, halfL, GameState.FIELD_WIDTH + lw, 1f, lw, 0.95f, 0.95f, 0.95f)
+        drawShapeAt(quad, 0f, 0.03f, -halfL, GameState.FIELD_WIDTH + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
+        drawShapeAt(quad, 0f, 0.03f, halfL, GameState.FIELD_WIDTH + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
         // 中线
-        drawShapeAt(quad, 0f, 0.03f, 0f, GameState.FIELD_WIDTH + lw, 1f, lw, 0.95f, 0.95f, 0.95f)
+        drawShapeAt(quad, 0f, 0.03f, 0f, GameState.FIELD_WIDTH + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
         // 中圈
-        drawShapeAt(centerCircle, 0f, 0.05f, 0f, 1f, 1f, 1f, 0.95f, 0.95f, 0.95f)
+        drawShapeAt(centerCircle, 0f, 0.05f, 0f, 1f, 1f, 1f, 0f, 0.95f, 0.95f, 0.95f)
         // 中点
-        drawShapeAt(quad, 0f, 0.04f, 0f, 0.4f, 1f, 0.4f, 0.95f, 0.95f, 0.95f)
+        drawShapeAt(quad, 0f, 0.04f, 0f, 0.4f, 1f, 0.4f, 0f, 0.95f, 0.95f, 0.95f)
 
-        // 两端禁区 + 小禁区 + 点球点
+        // 两端禁区 + 小禁区 + 点球点 + 球门
         for (sign in floatArrayOf(-1f, 1f)) {
             val goalZ = halfL * sign
             val dir = -sign
             // 大禁区：宽 40.32 深 16.5
             val boxW = 40.32f
             val boxD = 16.5f
-            drawShapeAt(quad, 0f, 0.03f, goalZ + dir * boxD, boxW + lw, 1f, lw, 0.95f, 0.95f, 0.95f)
-            drawShapeAt(quad, -boxW / 2, 0.03f, goalZ + dir * boxD / 2, lw, 1f, boxD, 0.95f, 0.95f, 0.95f)
-            drawShapeAt(quad, boxW / 2, 0.03f, goalZ + dir * boxD / 2, lw, 1f, boxD, 0.95f, 0.95f, 0.95f)
+            drawShapeAt(quad, 0f, 0.03f, goalZ + dir * boxD, boxW + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
+            drawShapeAt(quad, -boxW / 2, 0.03f, goalZ + dir * boxD / 2, lw, 1f, boxD, 0f, 0.95f, 0.95f, 0.95f)
+            drawShapeAt(quad, boxW / 2, 0.03f, goalZ + dir * boxD / 2, lw, 1f, boxD, 0f, 0.95f, 0.95f, 0.95f)
             // 小禁区：宽 18.32 深 5.5
             val gW = 18.32f
             val gD = 5.5f
-            drawShapeAt(quad, 0f, 0.03f, goalZ + dir * gD, gW + lw, 1f, lw, 0.95f, 0.95f, 0.95f)
-            drawShapeAt(quad, -gW / 2, 0.03f, goalZ + dir * gD / 2, lw, 1f, gD, 0.95f, 0.95f, 0.95f)
-            drawShapeAt(quad, gW / 2, 0.03f, goalZ + dir * gD / 2, lw, 1f, gD, 0.95f, 0.95f, 0.95f)
+            drawShapeAt(quad, 0f, 0.03f, goalZ + dir * gD, gW + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
+            drawShapeAt(quad, -gW / 2, 0.03f, goalZ + dir * gD / 2, lw, 1f, gD, 0f, 0.95f, 0.95f, 0.95f)
+            drawShapeAt(quad, gW / 2, 0.03f, goalZ + dir * gD / 2, lw, 1f, gD, 0f, 0.95f, 0.95f, 0.95f)
             // 点球点
-            drawShapeAt(quad, 0f, 0.04f, goalZ + dir * 11f, 0.35f, 1f, 0.35f, 0.95f, 0.95f, 0.95f)
+            drawShapeAt(quad, 0f, 0.04f, goalZ + dir * 11f, 0.35f, 1f, 0.35f, 0f, 0.95f, 0.95f, 0.95f)
             // 球门（门柱 + 横梁）
             val postH = 2.44f
             val goalHalf = GameState.GOAL_WIDTH / 2
-            drawShapeAt(cube, -goalHalf, postH / 2, goalZ, 0.12f, postH, 0.12f, 0.95f, 0.95f, 0.95f)
-            drawShapeAt(cube, goalHalf, postH / 2, goalZ, 0.12f, postH, 0.12f, 0.95f, 0.95f, 0.95f)
-            drawShapeAt(cube, 0f, postH, goalZ, GameState.GOAL_WIDTH + 0.12f, 0.12f, 0.12f, 0.95f, 0.95f, 0.95f)
+            drawShapeAt(cube, -goalHalf, postH / 2, goalZ, 0.12f, postH, 0.12f, 0f, 0.95f, 0.95f, 0.95f)
+            drawShapeAt(cube, goalHalf, postH / 2, goalZ, 0.12f, postH, 0.12f, 0f, 0.95f, 0.95f, 0.95f)
+            drawShapeAt(cube, 0f, postH, goalZ, GameState.GOAL_WIDTH + 0.12f, 0.12f, 0.12f, 0f, 0.95f, 0.95f, 0.95f)
         }
     }
 
