@@ -48,7 +48,14 @@ data class Player(
 
     // 门将状态
     var gkRushing: Boolean = false,
-    var gkRushTarget: Vector3 = Vector3.ZERO
+    var gkRushTarget: Vector3 = Vector3.ZERO,
+
+    // 裁判/铲球系统状态
+    var yellowCards: Int = 0,        // 黄牌数（两黄变一红）
+    var sentOff: Boolean = false,    // 红牌罚下
+    var fallTimer: Float = 0f,       // 被铲倒后的倒地时间（>0 = 倒地）
+    var slideTimer: Float = 0f,      // 铲球滑行时间（>0 = 滑铲姿态）
+    var tackleCooldown: Float = 0f   // 铲球动作冷却
 ) {
     /**
      * 动画状态枚举
