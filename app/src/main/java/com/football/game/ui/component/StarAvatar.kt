@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 
@@ -280,7 +281,7 @@ private fun DrawScope.drawStarAvatar(params: StarAvatarParams, number: Int?) {
         AvatarHairStyle.MOHAWK -> {
             val crest = Path().apply {
                 moveTo(X(31f), Y(29f))
-                quadraticTo(X(50f), Y(2f), X(69f), Y(29f))
+                quadraticBezierTo(X(50f), Y(2f), X(69f), Y(29f))
                 close()
             }
             drawPath(crest, hair)
