@@ -80,7 +80,7 @@ class GameEngine(
     /** 最后触球者（进球播报用） */
     var lastTouch: Player? = null
 
-    /** 替补席（每队 5 名外场球员，可主动换上场） */
+    /** 替补席（每队 6 人：1 门将 + 5 外场，可主动换上场） */
     val homeBench: List<Player> = createBenchPlayers(match.homeTeam, GameState.TeamSide.HOME)
     val awayBench: List<Player> = createBenchPlayers(match.awayTeam, GameState.TeamSide.AWAY)
 
@@ -1015,12 +1015,12 @@ class GameEngine(
     }
 
     /**
-     * 主动换人：替补球员顶替场上球员（同槽位替换，继承位置/阵型落位）
-     * 门将不可被换下；被换者持球时球权交给替补。返回是否成功。
+     * 主动换人：替补顶替所选场上球员的位置槽（选谁下场 = 选替补打哪个位置）
+     * 门将位只能由门将替补顶替（场上必须保持一名门将）；返回是否成功。
      */
     fun substitute(outgoing: Player, sub: Player): Boolean {
         val side = outgoing.teamSide
-        if (outgoing.isGoalkeeper) return false
+        if (outgoing.isGoalkeeper != sub.isGoalkeeper) return false
         if (substitutesFor(side).none { it === sub }) return false
         val squad = if (side == GameState.TeamSide.HOME) homePlayers else awayPlayers
         val idx = squad.indexOfFirst { it === outgoing }
@@ -1209,8 +1209,9 @@ class GameEngine(
         /** 每队换人名额上限 */
         const val MAX_SUBS = 5
 
-        private val BENCH_ROLES = listOf("CB", "LB", "CM", "CM", "FW")
-        private val BENCH_NUMBERS = listOf(12, 13, 14, 15, 16)
+        // 替补席：1 门将 + 5 外场（门将位只能由门将替补顶替）
+        private val BENCH_ROLES = listOf("GK", "CB", "LB", "CM", "RW", "FW")
+        private val BENCH_NUMBERS = listOf(12, 13, 14, 15, 16, 17)
 
         // 4-3-3 基础站位 (x, z)，主队进攻 +z，场地 105 x 68
         private val BASE_POSITIONS = listOf(
@@ -1243,7 +1244,7 @@ class GameEngine(
         }
 
         /**
-         * 生成替补席（5 名外场球员，站在场外待命，换人后顶替同槽位上场）
+         * 生成替补席（1 门将 + 5 外场，站在场外待命，换人后顶替所选位置槽上场）
          */
         fun createBenchPlayers(team: com.football.game.model.Team?, side: GameState.TeamSide): List<Player> {
             val offZ = if (side == GameState.TeamSide.HOME) -62f else 62f
@@ -1256,9 +1257,9 @@ class GameEngine(
                     teamSide = side,
                     teamId = team?.id ?: "",
                     teamName = team?.name ?: "",
-                    isGoalkeeper = false,
-                    position = Vector3((i - 2) * 4f, 0f, offZ),
-                    homePosition = Vector3((i - 2) * 4f, 0f, offZ)
+                    isGoalkeeper = role == "GK",
+                    position = Vector3((i - 2.5f) * 4f, 0f, offZ),
+                    homePosition = Vector3((i - 2.5f) * 4f, 0f, offZ)
                 )
             }
         }
