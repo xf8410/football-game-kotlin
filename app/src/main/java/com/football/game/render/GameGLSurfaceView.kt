@@ -4,7 +4,9 @@ import android.content.Context
 import android.opengl.GLSurfaceView
 import android.util.AttributeSet
 import android.view.MotionEvent
-import android.view.View
+import com.football.game.core.Vector3
+import com.football.game.data.PlayerLook
+import com.football.game.model.Player
 
 /**
  * 游戏 OpenGL 视图
@@ -26,14 +28,14 @@ class GameGLSurfaceView @JvmOverloads constructor(
     init {
         // 设置 OpenGL ES 2.0
         setEGLContextClientVersion(2)
-        
+
         // 设置渲染器
         renderer = GameRenderer()
         setRenderer(renderer)
-        
+
         // 连续渲染模式（游戏需要持续渲染）
         renderMode = RENDERMODE_CONTINUOUSLY
-        
+
         // 启用透明度
         setZOrderOnTop(false)
     }
@@ -46,21 +48,25 @@ class GameGLSurfaceView @JvmOverloads constructor(
     }
 
     /**
-     * 更新游戏数据
+     * 更新游戏数据（含球员外观）
      */
     fun updateGameData(
-        homePlayers: List<com.football.game.model.Player>,
-        awayPlayers: List<com.football.game.model.Player>,
-        ballPosition: com.football.game.core.Vector3,
+        homePlayers: List<Player>,
+        awayPlayers: List<Player>,
+        ballPosition: Vector3,
         ballHeight: Float,
-        activePlayerIndex: Int
+        activePlayerIndex: Int,
+        homeLooks: List<PlayerLook> = emptyList(),
+        awayLooks: List<PlayerLook> = emptyList()
     ) {
         renderer?.setGameData(
             homePlayers = homePlayers,
             awayPlayers = awayPlayers,
             ballPosition = ballPosition,
             ballHeight = ballHeight,
-            activePlayerIndex = activePlayerIndex
+            activePlayerIndex = activePlayerIndex,
+            homeLooks = homeLooks,
+            awayLooks = awayLooks
         )
     }
 
