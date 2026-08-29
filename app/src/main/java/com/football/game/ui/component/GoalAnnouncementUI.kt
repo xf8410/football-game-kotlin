@@ -237,6 +237,7 @@ fun SpecialGoalAnnouncement(
 
 /**
  * 进球方式图标
+ * 图标映射与 GoalTypes.GoalMethod 枚举值一一对应
  */
 @Composable
 fun GoalMethodIcon(
@@ -249,27 +250,25 @@ fun GoalMethodIcon(
         GoalTypes.GoalMethod.HEADER_POWERFUL,
         GoalTypes.GoalMethod.HEADER_DIVING,
         GoalTypes.GoalMethod.HEADER_REDIRECT,
-        GoalTypes.GoalMethod.HEADER_GLANCING,
+        GoalTypes.GoalMethod.HEADER_CROSS,
         GoalTypes.GoalMethod.CORNER_HEADER -> "⚽" to Color(0xFF8BC34A)
         
         // 特殊射门
         GoalTypes.GoalMethod.SHOT_CURLED -> "🌀" to Color(0xFF9C27B0)
         GoalTypes.GoalMethod.SHOT_KNUCKLE -> "💨" to Color(0xFF2196F3)
         GoalTypes.GoalMethod.SHOT_CHIP -> "⬆️" to Color(0xFF00BCD4)
-        GoalTypes.GoalMethod.SHOT_BICYCLE,
-        GoalTypes.GoalMethod.SHOT_OVERHEAD -> "🤸" to Color(0xFFFF9800)
+        GoalTypes.GoalMethod.SHOT_BICYCLE -> "🤸" to Color(0xFFFF9800)
         GoalTypes.GoalMethod.SHOT_VOLLEY,
         GoalTypes.GoalMethod.SHOT_HALF_VOLLEY -> "🚀" to Color(0xFFF44336)
         GoalTypes.GoalMethod.SHOT_BACKHEEL -> "🦶" to Color(0xFFE91E63)
         
         // 位置
-        GoalTypes.GoalMethod.SHOT_FAR_POST,
-        GoalTypes.GoalMethod.LONG_SHOT -> "🎯" to Color(0xFFFF5722)
+        GoalTypes.GoalMethod.SHOT_FAR_POST -> "🎯" to Color(0xFFFF5722)
         
         // 配合
         GoalTypes.GoalMethod.SHOT_CROSS,
         GoalTypes.GoalMethod.SHOT_CUTBACK,
-        GoalTypes.GoalMethod.SHOT_LAYOFF -> "🤝" to Color(0xFF4CAF50)
+        GoalTypes.GoalMethod.SHOT_ONE_TWO -> "🤝" to Color(0xFF4CAF50)
         
         // 特殊
         GoalTypes.GoalMethod.PANENKA -> "🥄" to Color(0xFFFFD700)
