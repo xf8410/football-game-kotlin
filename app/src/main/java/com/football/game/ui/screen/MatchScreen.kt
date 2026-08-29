@@ -1,6 +1,5 @@
 package com.football.game.ui.screen
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,21 +20,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.football.game.core.GameEngine
 import com.football.game.core.GameState
 import com.football.game.core.GoalAnnouncement
 import com.football.game.core.GoalTypes
-import com.football.game.core.Vector3
+import com.football.game.data.StarLikeness
 import com.football.game.model.Team
+import com.football.game.render.GameGLSurfaceView
 import com.football.game.ui.component.GoalAnnouncementUI
 import com.football.game.ui.component.TouchControls
 import kotlinx.coroutines.delay
 
+/**
+ * 比赛屏幕：真实 OpenGL 3D 场景（关节式球员模型 + 球衣配色 + 球星发型）
+ */
 @Composable
 fun MatchScreen(
     homeTeamName: String = "红队",
@@ -51,39 +54,45 @@ fun MatchScreen(
     var isPaused by remember { mutableStateOf(false) }
     var isFinished by remember { mutableStateOf(false) }
     var currentAnnouncement by remember { mutableStateOf<GoalAnnouncement?>(null) }
-    var ballPosition by remember { mutableStateOf(Vector3.ZERO) }
-    var ballHeight by remember { mutableFloatStateOf(0f) }
     var hasBall by remember { mutableStateOf(false) }
-    
+    var glView by remember { mutableStateOf<GameGLSurfaceView?>(null) }
+
     val match = remember {
         com.football.game.model.Match(
             homeTeam = homeTeam ?: Team(id = "home", name = homeTeamName, shortName = "HOM"),
             awayTeam = awayTeam ?: Team(id = "away", name = awayTeamName, shortName = "AWY")
         )
     }
-    
-    val gameEngine = remember {
-        GameEngine(match = match, homePlayers = emptyList(), awayPlayers = emptyList())
+
+    // 十一名球员（4-3-3，下标 9 为中锋/招牌球星位）
+    val gameEngine = remember(match) {
+        GameEngine(
+            match = match,
+            homePlayers = GameEngine.createTeamPlayers(match.homeTeam, GameState.TeamSide.HOME),
+            awayPlayers = GameEngine.createTeamPlayers(match.awayTeam, GameState.TeamSide.AWAY)
+        ).apply {
+            activePlayer = homePlayers.getOrNull(9)
+            activePlayer?.isActive = true
+            activePlayer?.isPlayerControlled = true
+        }
     }
-    
-    fun simulateGoal(isHome: Boolean) {
-        val methods = listOf(
-            GoalTypes.GoalMethod.SHOT_NORMAL,
-            GoalTypes.GoalMethod.SHOT_POWERFUL,
-            GoalTypes.GoalMethod.SHOT_CURLED,
-            GoalTypes.GoalMethod.HEADER_NORMAL,
-            GoalTypes.GoalMethod.SHOT_FAR_POST,
-            GoalTypes.GoalMethod.SHOT_CROSS,
-            GoalTypes.GoalMethod.REBOUND
-        )
-        val method = methods.random()
-        
+
+    // 球员外观（球衣配色 + 肤色/发型，招牌球星套用球队标志性特征）
+    val homeLooks = remember(match) { StarLikeness.lookForTeam(match.homeTeam, 11) }
+    val awayLooks = remember(match) { StarLikeness.lookForTeam(match.awayTeam, 11) }
+
+    // 进球处理
+    fun handleGoal(scoringSide: GameState.TeamSide) {
+        val isHome = scoringSide == GameState.TeamSide.HOME
         if (isHome) homeScore++ else awayScore++
-        
-        val announcement = GoalTypes.generateGoalAnnouncement(
-            goalMethod = method,
-            scorerName = if (isHome) "主队球员" else "客队球员",
-            minute = matchTime.toInt() / 60 + if (currentHalf == 2) 45 else 0,
+
+        val scorer = gameEngine.lastTouch
+        val minute = (matchTime / 60f).toInt() + if (currentHalf == 2) 45 else 0
+
+        currentAnnouncement = GoalTypes.generateGoalAnnouncement(
+            goalMethod = GoalTypes.GoalMethod.SHOT_NORMAL,
+            scorerName = scorer?.let { "${it.number}号" } ?: "球员",
+            minute = minute,
             goalCount = 1,
             teamName = if (isHome) homeTeamName else awayTeamName,
             opponentName = if (isHome) awayTeamName else homeTeamName,
@@ -92,55 +101,73 @@ fun MatchScreen(
             goalContext = GoalTypes.detectGoalContext(
                 teamScore = if (isHome) homeScore else awayScore,
                 opponentScore = if (isHome) awayScore else homeScore,
-                minute = matchTime.toInt() / 60,
+                minute = minute,
                 isExtraTime = false,
                 isSecondHalf = currentHalf == 2
             )
         )
-        
-        currentAnnouncement = announcement
     }
-    
+
+    LaunchedEffect(Unit) {
+        gameEngine.onGoal = { side -> handleGoal(side) }
+    }
+
+    // 引擎实时模拟（~60fps）+ 推送渲染数据
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(16L)
+            if (!isPaused && !isFinished) {
+                gameEngine.update(0.016f)
+                glView?.updateGameData(
+                    homePlayers = gameEngine.homePlayers,
+                    awayPlayers = gameEngine.awayPlayers,
+                    ballPosition = gameEngine.ballPosition,
+                    ballHeight = gameEngine.ballHeight,
+                    activePlayerIndex = gameEngine.homePlayers.indexOf(gameEngine.activePlayer),
+                    homeLooks = homeLooks,
+                    awayLooks = awayLooks
+                )
+                hasBall = gameEngine.ballOwner?.isPlayerControlled == true
+            }
+        }
+    }
+
+    // 比赛时钟（50 倍加速：+5s 游戏时间 / 100ms）
     LaunchedEffect(isPaused, isFinished) {
-        if (!isPaused && !isFinished) {
-            while (matchTime < 2700f) {
-                delay(100L)
-                if (!isPaused && !isFinished) {
-                    matchTime += 10f
-                    if (matchTime.toInt() % 600 == 0 && matchTime > 0) {
-                        if (Math.random() > 0.6) {
-                            simulateGoal(Math.random() > 0.5)
-                        }
-                    }
-                    if (matchTime >= 2700f && currentHalf == 1) {
-                        currentHalf = 2
-                        matchTime = 0f
-                    } else if (matchTime >= 2700f && currentHalf == 2) {
-                        isFinished = true
-                    }
+        while (matchTime < 2700f) {
+            delay(100L)
+            if (!isPaused && !isFinished) {
+                matchTime += 5f
+                if (matchTime >= 2700f && currentHalf == 1) {
+                    currentHalf = 2
+                    matchTime = 0f
+                } else if (matchTime >= 2700f && currentHalf == 2) {
+                    isFinished = true
                 }
             }
         }
     }
-    
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF2E7D32))
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawField(size.width, size.height)
-            drawPlayers(size.width, size.height)
-            drawBall(size.width, size.height, ballPosition, ballHeight)
-        }
-        
+        // OpenGL 3D 场景
+        AndroidView(
+            factory = { ctx ->
+                GameGLSurfaceView(ctx).also { view -> glView = view }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
         GoalAnnouncementUI(
             announcement = currentAnnouncement,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(16.dp)
         )
-        
+
         Scoreboard(
             homeTeamName = homeTeamName,
             awayTeamName = awayTeamName,
@@ -152,61 +179,13 @@ fun MatchScreen(
                 .align(Alignment.TopCenter)
                 .padding(16.dp)
         )
-        
+
         TouchControls(
             gameEngine = gameEngine,
             hasBall = hasBall,
             modifier = Modifier.fillMaxSize()
         )
     }
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawField(width: Float, height: Float) {
-    val fieldLeft = width * 0.05f
-    val fieldRight = width * 0.95f
-    val fieldTop = height * 0.1f
-    val fieldBottom = height * 0.9f
-    
-    drawLine(Color.White, Offset(fieldLeft, fieldTop), Offset(fieldRight, fieldTop), 3f)
-    drawLine(Color.White, Offset(fieldLeft, fieldBottom), Offset(fieldRight, fieldBottom), 3f)
-    drawLine(Color.White, Offset(fieldLeft, fieldTop), Offset(fieldLeft, fieldBottom), 3f)
-    drawLine(Color.White, Offset(fieldRight, fieldTop), Offset(fieldRight, fieldBottom), 3f)
-    drawLine(Color.White, Offset(width / 2, fieldTop), Offset(width / 2, fieldBottom), 3f)
-    drawCircle(Color.White, height * 0.1f, Offset(width / 2, height / 2), style = androidx.compose.ui.graphics.drawscope.Stroke(3f))
-    
-    val penaltyWidth = width * 0.2f
-    val penaltyHeight = height * 0.15f
-    drawRect(Color.White, Offset(width / 2 - penaltyWidth / 2, fieldTop), androidx.compose.ui.geometry.Size(penaltyWidth, penaltyHeight), style = androidx.compose.ui.graphics.drawscope.Stroke(3f))
-    drawRect(Color.White, Offset(width / 2 - penaltyWidth / 2, fieldBottom - penaltyHeight), androidx.compose.ui.geometry.Size(penaltyWidth, penaltyHeight), style = androidx.compose.ui.graphics.drawscope.Stroke(3f))
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPlayers(width: Float, height: Float) {
-    val homePositions = listOf(
-        Offset(width * 0.5f, height * 0.15f), Offset(width * 0.2f, height * 0.25f),
-        Offset(width * 0.4f, height * 0.25f), Offset(width * 0.6f, height * 0.25f),
-        Offset(width * 0.8f, height * 0.25f), Offset(width * 0.2f, height * 0.4f),
-        Offset(width * 0.4f, height * 0.4f), Offset(width * 0.6f, height * 0.4f),
-        Offset(width * 0.8f, height * 0.4f), Offset(width * 0.4f, height * 0.55f),
-        Offset(width * 0.6f, height * 0.55f)
-    )
-    homePositions.forEach { drawCircle(Color(0xFFC62828), 12f, it) }
-    
-    val awayPositions = listOf(
-        Offset(width * 0.5f, height * 0.85f), Offset(width * 0.2f, height * 0.75f),
-        Offset(width * 0.4f, height * 0.75f), Offset(width * 0.6f, height * 0.75f),
-        Offset(width * 0.8f, height * 0.75f), Offset(width * 0.2f, height * 0.6f),
-        Offset(width * 0.4f, height * 0.6f), Offset(width * 0.6f, height * 0.6f),
-        Offset(width * 0.8f, height * 0.6f), Offset(width * 0.4f, height * 0.45f),
-        Offset(width * 0.6f, height * 0.45f)
-    )
-    awayPositions.forEach { drawCircle(Color(0xFF1565C0), 12f, it) }
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBall(width: Float, height: Float, position: Vector3, ballHeight: Float) {
-    val ballX = width / 2 + position.x * (width / GameState.FIELD_WIDTH)
-    val ballY = height / 2 - position.z * (height / GameState.FIELD_LENGTH) - ballHeight * 2
-    drawCircle(Color.Black.copy(alpha = 0.3f), 8f, Offset(ballX, height / 2 - position.z * (height / GameState.FIELD_LENGTH)))
-    drawCircle(Color.White, 10f, Offset(ballX, ballY))
 }
 
 @Composable
