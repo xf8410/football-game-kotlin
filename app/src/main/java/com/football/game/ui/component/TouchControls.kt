@@ -29,13 +29,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.football.game.core.GameEngine
 import kotlin.math.sqrt
 
 /**
- * 触屏控制器（极简按键版）
+ * 触屏控制器（最佳球会风格：半透明圆形按键 + 情境出现）
  *
  * 左侧：虚拟摇杆（移动方向）
  * 右侧：大动作按钮 + 情境按键，按键随局势自动出现/切换：
@@ -106,7 +107,7 @@ fun TouchControls(
 
 /**
  * 大动作按钮：加速 ⇄ 射门 ⇄ 铲球
- * 按下即触发：射门/铲球点按生效，加速按住生效、松手停止
+ * 半透明深色圆键 + 模式色描边；按下即触发：射门/铲球点按生效，加速按住生效、松手停止
  */
 @Composable
 private fun ContextActionButton(
@@ -125,8 +126,8 @@ private fun ContextActionButton(
         modifier = Modifier
             .size(88.dp)
             .clip(CircleShape)
-            .background(color)
-            .border(3.dp, Color.White.copy(alpha = 0.7f), CircleShape)
+            .background(Color.Black.copy(alpha = 0.5f))
+            .border(2.5.dp, color, CircleShape)
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
@@ -144,8 +145,8 @@ private fun ContextActionButton(
     ) {
         Text(
             text = label,
-            color = Color.White,
-            fontSize = 20.sp,
+            color = color,
+            fontSize = 19.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -194,21 +195,21 @@ fun VirtualJoystick(
     ) {
         // 外圈
         drawCircle(
-            color = Color.White.copy(alpha = 0.3f),
+            color = Color.Black.copy(alpha = 0.35f),
             radius = maxRadius + 20f,
             center = center
         )
 
         // 内圈
         drawCircle(
-            color = Color.White.copy(alpha = 0.5f),
+            color = Color.Black.copy(alpha = 0.45f),
             radius = maxRadius,
             center = center
         )
 
         // 摇杆
         drawCircle(
-            color = Color.White,
+            color = Color.White.copy(alpha = 0.9f),
             radius = 30f,
             center = center + knobOffset
         )
@@ -216,7 +217,7 @@ fun VirtualJoystick(
 }
 
 /**
- * 单个动作按钮
+ * 小型情境动作按钮（传球/直塞/解围）：半透明圆形
  */
 @Composable
 fun ActionButton(
@@ -226,14 +227,45 @@ fun ActionButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = Modifier.size(70.dp),
+        modifier = Modifier
+            .size(66.dp)
+            .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape),
         shape = CircleShape,
-        colors = ButtonDefaults.buttonColors(containerColor = color)
+        colors = ButtonDefaults.buttonColors(containerColor = color.copy(alpha = 0.55f)),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
     ) {
         Text(
             text = text,
-            fontSize = 12.sp,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
             color = Color.White
+        )
+    }
+}
+
+/**
+ * HUD 通用圆键（倍速/暂停/换人等）：半透明深色圆形 + 白字
+ */
+@Composable
+fun HudCircleButton(
+    label: String,
+    size: Dp = 44.dp,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.5f))
+            .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold
         )
     }
 }
