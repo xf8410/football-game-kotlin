@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,16 +38,17 @@ import kotlin.math.sqrt
  * 触屏控制器（极简按键版）
  *
  * 左侧：虚拟摇杆（移动方向）
- * 右侧：一颗大动作按钮 + 传球按钮，按键随局势自动切换功能：
- * - 加速（按住生效）：己方无球 / 持球但未进射门范围 / 自由球
- * - 射门（点按）：持球且已进射门范围，或刚接住队友传球（接球即射）
- * - 铲球（点按）：对方持球且已贴身（铲球/加速/射门共用一颗键）
+ * 右侧：大动作按钮 + 情境按键，按键随局势自动出现/切换：
+ * - 大按钮三态：加速（按住）⇄ 射门（点按：进入射门范围或刚接住传球）⇄ 铲球（点按：对方持球且贴身）
+ * - 传球 / 直塞：己方持球时显示（两回事，各自独立按键）
+ * - 解围：本方禁区附近己方持球时显示，大脚踢向前场
  */
 @Composable
 fun TouchControls(
     gameEngine: GameEngine,
     actionMode: GameEngine.ActionMode,
     hasBall: Boolean,
+    showClearance: Boolean,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -65,24 +67,38 @@ fun TouchControls(
             }
         )
 
-        // 右侧：大动作按钮 + 传球
+        // 右侧：解围 + 大动作按钮 + 传球/直塞
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.End
         ) {
+            if (showClearance) {
+                ActionButton(
+                    text = "解围",
+                    color = Color(0xFF8D6E63),
+                    onClick = { gameEngine.doClearance() }
+                )
+            }
             ContextActionButton(
                 gameEngine = gameEngine,
                 mode = actionMode
             )
             if (hasBall) {
-                ActionButton(
-                    text = "传球",
-                    color = Color(0xFF4CAF50),
-                    onClick = { gameEngine.doPass() }
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ActionButton(
+                        text = "传球",
+                        color = Color(0xFF4CAF50),
+                        onClick = { gameEngine.doPass() }
+                    )
+                    ActionButton(
+                        text = "直塞",
+                        color = Color(0xFF2196F3),
+                        onClick = { gameEngine.doThroughBall() }
+                    )
+                }
             }
         }
     }
@@ -102,7 +118,7 @@ private fun ContextActionButton(
     val (label, color) = when (mode) {
         GameEngine.ActionMode.SPRINT -> "加速" to Color(0xFFFF9800)
         GameEngine.ActionMode.SHOOT -> "射门" to Color(0xFFF44336)
-        GameEngine.ActionMode.TACKLE -> "铲球" to Color(0xFF2196F3)
+        GameEngine.ActionMode.TACKLE -> "铲球" to Color(0xFF3F51B5)
     }
 
     Box(
