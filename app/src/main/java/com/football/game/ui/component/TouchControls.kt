@@ -1,13 +1,14 @@
 package com.football.game.ui.component
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -18,31 +19,36 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.football.game.core.GameEngine
 import kotlin.math.sqrt
 
 /**
- * 触屏控制器组件
- * 左侧：虚拟摇杆
- * 右侧：动作按钮
+ * 触屏控制器（极简按键版）
+ *
+ * 左侧：虚拟摇杆（移动方向）
+ * 右侧：一颗大动作按钮 + 传球按钮，按键随局势自动切换功能：
+ * - 加速（按住生效）：己方无球 / 持球但未进射门范围 / 自由球
+ * - 射门（点按）：持球且已进射门范围，或刚接住队友传球（接球即射）
+ * - 铲球（点按）：对方持球且已贴身（铲球/加速/射门共用一颗键）
  */
 @Composable
 fun TouchControls(
     gameEngine: GameEngine,
+    actionMode: GameEngine.ActionMode,
     hasBall: Boolean,
     modifier: Modifier = Modifier
 ) {
-    var joystickOffset by remember { mutableStateOf(Offset.Zero) }
-    var isSprinting by remember { mutableStateOf(false) }
-
     Box(modifier = modifier.fillMaxSize()) {
         // 左侧虚拟摇杆
         VirtualJoystick(
@@ -51,7 +57,6 @@ fun TouchControls(
                 .padding(16.dp)
                 .size(150.dp),
             onOffsetChange = { offset ->
-                joystickOffset = offset
                 // 转换为游戏输入
                 val maxLength = 75f  // 摇杆最大半径
                 val normalizedX = offset.x / maxLength
@@ -60,20 +65,72 @@ fun TouchControls(
             }
         )
 
-        // 右侧动作按钮
-        ActionButtons(
-            hasBall = hasBall,
-            onPassClick = { gameEngine.doPass() },
-            onShootClick = { gameEngine.doShoot() },
-            onThroughBallClick = { gameEngine.doThroughBall() },
-            onSprintClick = {
-                isSprinting = !isSprinting
-                gameEngine.isSprinting = isSprinting
-            },
-            onSwitchClick = { gameEngine.switchPlayer() },
+        // 右侧：大动作按钮 + 传球
+        Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(16.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalAlignment = Alignment.End
+        ) {
+            ContextActionButton(
+                gameEngine = gameEngine,
+                mode = actionMode
+            )
+            if (hasBall) {
+                ActionButton(
+                    text = "传球",
+                    color = Color(0xFF4CAF50),
+                    onClick = { gameEngine.doPass() }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 大动作按钮：加速 ⇄ 射门 ⇄ 铲球
+ * 按下即触发：射门/铲球点按生效，加速按住生效、松手停止
+ */
+@Composable
+private fun ContextActionButton(
+    gameEngine: GameEngine,
+    mode: GameEngine.ActionMode
+) {
+    // pointerInput(Unit) 的手势回调是长驻协程，用 rememberUpdatedState 读取最新模式
+    val currentMode by rememberUpdatedState(mode)
+    val (label, color) = when (mode) {
+        GameEngine.ActionMode.SPRINT -> "加速" to Color(0xFFFF9800)
+        GameEngine.ActionMode.SHOOT -> "射门" to Color(0xFFF44336)
+        GameEngine.ActionMode.TACKLE -> "铲球" to Color(0xFF2196F3)
+    }
+
+    Box(
+        modifier = Modifier
+            .size(88.dp)
+            .clip(CircleShape)
+            .background(color)
+            .border(3.dp, Color.White.copy(alpha = 0.7f), CircleShape)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        when (currentMode) {
+                            GameEngine.ActionMode.SPRINT -> gameEngine.isSprinting = true
+                            GameEngine.ActionMode.SHOOT -> gameEngine.doShoot()
+                            GameEngine.ActionMode.TACKLE -> gameEngine.doTackle()
+                        }
+                        tryAwaitRelease()
+                        gameEngine.isSprinting = false
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold
         )
     }
 }
@@ -139,68 +196,6 @@ fun VirtualJoystick(
             radius = 30f,
             center = center + knobOffset
         )
-    }
-}
-
-/**
- * 动作按钮
- */
-@Composable
-fun ActionButtons(
-    hasBall: Boolean,
-    onPassClick: () -> Unit,
-    onShootClick: () -> Unit,
-    onThroughBallClick: () -> Unit,
-    onSprintClick: () -> Unit,
-    onSwitchClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        horizontalAlignment = Alignment.End
-    ) {
-        if (hasBall) {
-            // 有球时的按钮
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionButton(
-                    text = "传球",
-                    color = Color(0xFF4CAF50),
-                    onClick = onPassClick
-                )
-                ActionButton(
-                    text = "直塞",
-                    color = Color(0xFF2196F3),
-                    onClick = onThroughBallClick
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionButton(
-                    text = "射门",
-                    color = Color(0xFFF44336),
-                    onClick = onShootClick
-                )
-                ActionButton(
-                    text = "冲刺",
-                    color = Color(0xFFFF9800),
-                    onClick = onSprintClick
-                )
-            }
-        } else {
-            // 无球时的按钮
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ActionButton(
-                    text = "切换",
-                    color = Color(0xFF9C27B0),
-                    onClick = onSwitchClick
-                )
-                ActionButton(
-                    text = "冲刺",
-                    color = Color(0xFFFF9800),
-                    onClick = onSprintClick
-                )
-            }
-        }
     }
 }
 
