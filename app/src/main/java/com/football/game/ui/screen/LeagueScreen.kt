@@ -43,10 +43,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.football.game.data.LeagueDatabase
+import com.football.game.data.StarLikeness
 import com.football.game.league.Fixture
 import com.football.game.league.LeagueManager
 import com.football.game.model.League
 import com.football.game.model.Team
+import com.football.game.ui.component.StarAvatarView
 
 /**
  * 联赛模式屏幕
@@ -611,7 +613,7 @@ fun LeagueInfoItem(label: String, value: String) {
 }
 
 /**
- * 球队列表项
+ * 球队列表项（带招牌球星头像）
  */
 @Composable
 fun TeamListItem(
@@ -644,13 +646,10 @@ fun TeamListItem(
                 textAlign = TextAlign.Center
             )
 
-            // 球队颜色
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(team.primaryColor)
-                    .border(2.dp, Color.LightGray, CircleShape)
+            // 招牌球星头像（球衣配色）
+            StarAvatarView(
+                params = StarLikeness.paramsForTeam(team.name, team.primaryColor, team.secondaryColor),
+                modifier = Modifier.size(40.dp)
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -663,11 +662,22 @@ fun TeamListItem(
                     fontWeight = FontWeight.Bold,
                     color = Color.Black
                 )
-                Text(
-                    text = team.shortName,
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = team.shortName,
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                    StarLikeness.starNameForTeam(team.name)?.let { star ->
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "⭐ $star",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFA000)
+                        )
+                    }
+                }
             }
 
             // 球队能力
