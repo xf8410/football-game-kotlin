@@ -37,8 +37,11 @@ class GameEngine(
     data class Vector2D(val x: Float = 0f, val y: Float = 0f) {
         companion object { val ZERO = Vector2D() }
         fun normalized(): Vector2D {
-            val len = kotlin.math.sqrt(x * x + y * y)
+            val len = length()
             return if (len > 0.001f) Vector2D(x / len, y / len) else ZERO
+        }
+        fun length(): Float {
+            return kotlin.math.sqrt(x * x + y * y)
         }
     }
     
