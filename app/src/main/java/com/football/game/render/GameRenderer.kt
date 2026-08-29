@@ -5,9 +5,9 @@ import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import com.football.game.core.GameState
 import com.football.game.core.Vector3
-import com.football.game.data.HairStyle3D
-import com.football.game.data.PlayerLook
 import com.football.game.model.Player
+import com.football.game.ui.component.HairStyle3D
+import com.football.game.ui.component.PlayerLook
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
