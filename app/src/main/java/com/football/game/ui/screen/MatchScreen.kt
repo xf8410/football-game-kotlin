@@ -32,12 +32,14 @@ import com.football.game.core.GoalTypes
 import com.football.game.data.StarLikeness
 import com.football.game.model.Team
 import com.football.game.render.GameGLSurfaceView
+import com.football.game.sound.SoundManager
 import com.football.game.ui.component.GoalAnnouncementUI
 import com.football.game.ui.component.TouchControls
 import kotlinx.coroutines.delay
 
 /**
- * 比赛屏幕：真实 OpenGL 3D 场景（关节式球员模型 + 球衣配色 + 球星发型）
+ * 比赛屏幕：真实 OpenGL 3D 场景
+ * 关节式球员模型 + 裁判（鸣哨/出牌）+ 铲球/犯规/任意球/点球 + 合成音效
  */
 @Composable
 fun MatchScreen(
@@ -55,6 +57,7 @@ fun MatchScreen(
     var isFinished by remember { mutableStateOf(false) }
     var currentAnnouncement by remember { mutableStateOf<GoalAnnouncement?>(null) }
     var hasBall by remember { mutableStateOf(false) }
+    var bannerText by remember { mutableStateOf<String?>(null) }
     var glView by remember { mutableStateOf<GameGLSurfaceView?>(null) }
 
     val match = remember {
@@ -85,6 +88,7 @@ fun MatchScreen(
     fun handleGoal(scoringSide: GameState.TeamSide) {
         val isHome = scoringSide == GameState.TeamSide.HOME
         if (isHome) homeScore++ else awayScore++
+        SoundManager.play(SoundManager.Sfx.CHEER)
 
         val scorer = gameEngine.lastTouch
         val minute = (matchTime / 60f).toInt() + if (currentHalf == 2) 45 else 0
@@ -108,8 +112,26 @@ fun MatchScreen(
         )
     }
 
+    // 引擎事件接线（音效 + 横幅 + 进球）
     LaunchedEffect(Unit) {
+        gameEngine.onSound = { key ->
+            when (key) {
+                "whistle" -> SoundManager.play(SoundManager.Sfx.WHISTLE)
+                "whistle_short" -> SoundManager.play(SoundManager.Sfx.WHISTLE_SHORT)
+                "kick" -> SoundManager.play(SoundManager.Sfx.KICK)
+                "tackle" -> SoundManager.play(SoundManager.Sfx.TACKLE)
+            }
+        }
+        gameEngine.onBanner = { text -> bannerText = text }
         gameEngine.onGoal = { side -> handleGoal(side) }
+    }
+
+    // 横幅自动消失
+    LaunchedEffect(bannerText) {
+        if (bannerText != null) {
+            delay(2800L)
+            bannerText = null
+        }
     }
 
     // 引擎实时模拟（~60fps）+ 推送渲染数据
@@ -125,7 +147,8 @@ fun MatchScreen(
                     ballHeight = gameEngine.ballHeight,
                     activePlayerIndex = gameEngine.homePlayers.indexOf(gameEngine.activePlayer),
                     homeLooks = homeLooks,
-                    awayLooks = awayLooks
+                    awayLooks = awayLooks,
+                    referee = gameEngine.referee
                 )
                 hasBall = gameEngine.ballOwner?.isPlayerControlled == true
             }
@@ -179,6 +202,24 @@ fun MatchScreen(
                 .align(Alignment.TopCenter)
                 .padding(16.dp)
         )
+
+        // 犯规/牌/定位球横幅
+        bannerText?.let { text ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 110.dp)
+                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = text,
+                    color = Color(0xFFFFD54F),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
 
         TouchControls(
             gameEngine = gameEngine,
