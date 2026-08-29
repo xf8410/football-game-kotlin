@@ -41,8 +41,8 @@ private data class SetPieceData(
  */
 class GameEngine(
     val match: Match,
-    val homePlayers: List<Player>,
-    val awayPlayers: List<Player>
+    var homePlayers: List<Player>,
+    var awayPlayers: List<Player>
 ) {
     var ballPosition = Vector3.ZERO
     var ballVelocity = Vector3.ZERO
@@ -79,6 +79,16 @@ class GameEngine(
 
     /** 最后触球者（进球播报用） */
     var lastTouch: Player? = null
+
+    /** 替补席（每队 5 名外场球员，可主动换上场） */
+    val homeBench: List<Player> = createBenchPlayers(match.homeTeam, GameState.TeamSide.HOME)
+    val awayBench: List<Player> = createBenchPlayers(match.awayTeam, GameState.TeamSide.AWAY)
+
+    /** 已用换人名额 */
+    var homeSubsUsed = 0
+        private set
+    var awaySubsUsed = 0
+        private set
 
     private var pickupCooldown = 0f      // 出球后短暂不可再拿球
     private var aiDecisionCooldown = 0f  // AI 持球决策间隔
@@ -952,6 +962,108 @@ class GameEngine(
         return kotlin.math.abs(attackZ - p.position.z) < 24f && kotlin.math.abs(p.position.x) < 18f
     }
 
+    // ==================== 解围 ====================
+
+    /** 是否在本方禁区附近（本方球门 30m 半径内，用于显示"解围"按钮） */
+    fun inOwnBoxZone(p: Player): Boolean {
+        val ownGoalZ = if (p.teamSide == GameState.TeamSide.HOME) {
+            -GameState.FIELD_LENGTH / 2
+        } else {
+            GameState.FIELD_LENGTH / 2
+        }
+        return p.position.distanceTo(Vector3(0f, 0f, ownGoalZ)) < 30f
+    }
+
+    /** 当前是否可解围：操控球员己方控球且在本方禁区附近 */
+    fun canClear(): Boolean {
+        val owner = ballOwner ?: return false
+        if (!owner.isPlayerControlled) return false
+        return inOwnBoxZone(owner)
+    }
+
+    /** 解围：本方禁区附近大脚踢向前场（高球远踢） */
+    fun doClearance() {
+        val player = activePlayer ?: return
+        if (ballOwner != player) return
+        val attackSign = if (player.teamSide == GameState.TeamSide.HOME) 1f else -1f
+        val dir = Vector3(
+            Random.nextFloat() * 24f - 12f,
+            0f,
+            attackSign
+        ).normalized()
+        ballVelocity = dir * (GameState.SHOT_SPEED * 0.9f)
+        ballHeightVelocity = 5f + Random.nextFloat() * 2f
+        ballOwner = null
+        player.hasBall = false
+        lastTouch = player
+        pickupCooldown = 0.4f
+        ballControlTime = 0f
+        player.animState = Player.AnimState.KICK
+        player.actionCooldown = 0.4f
+        onSound?.invoke("kick")
+    }
+
+    // ==================== 换人系统 ====================
+
+    /** 可用替补：替补席中尚未上场的球员（名额用完返回空列表） */
+    fun substitutesFor(side: GameState.TeamSide): List<Player> {
+        val bench = if (side == GameState.TeamSide.HOME) homeBench else awayBench
+        val field = if (side == GameState.TeamSide.HOME) homePlayers else awayPlayers
+        val used = if (side == GameState.TeamSide.HOME) homeSubsUsed else awaySubsUsed
+        if (used >= MAX_SUBS) return emptyList()
+        return bench.filter { b -> field.none { it === b } }
+    }
+
+    /**
+     * 主动换人：替补球员顶替场上球员（同槽位替换，继承位置/阵型落位）
+     * 门将不可被换下；被换者持球时球权交给替补。返回是否成功。
+     */
+    fun substitute(outgoing: Player, sub: Player): Boolean {
+        val side = outgoing.teamSide
+        if (outgoing.isGoalkeeper) return false
+        if (substitutesFor(side).none { it === sub }) return false
+        val squad = if (side == GameState.TeamSide.HOME) homePlayers else awayPlayers
+        val idx = squad.indexOfFirst { it === outgoing }
+        if (idx < 0) return false
+
+        val wasActive = activePlayer === outgoing
+        val wasControlled = outgoing.isPlayerControlled
+
+        // 替补接管槽位：位置/朝向/阵型落位与被换者一致
+        sub.position = Vector3(outgoing.position.x, 0f, outgoing.position.z)
+        sub.homePosition = outgoing.homePosition
+        sub.velocity = Vector3.ZERO
+        sub.facingDirection = outgoing.facingDirection
+        sub.hasBall = false
+        sub.isActive = wasActive
+        sub.isPlayerControlled = wasControlled
+        sub.isSprinting = false
+        sub.fallTimer = 0f
+        sub.slideTimer = 0f
+        sub.tackleCooldown = 0f
+        sub.actionCooldown = 0f
+        sub.yellowCards = 0
+        sub.sentOff = false
+        sub.animState = Player.AnimState.IDLE
+
+        outgoing.isActive = false
+        outgoing.isPlayerControlled = false
+        if (wasActive) activePlayer = sub
+        // 被换者正持球 → 球权交给替补
+        if (ballOwner === outgoing) assignBallOwner(sub)
+
+        val newList = squad.toMutableList()
+        newList[idx] = sub
+        if (side == GameState.TeamSide.HOME) {
+            homePlayers = newList
+            homeSubsUsed++
+        } else {
+            awayPlayers = newList
+            awaySubsUsed++
+        }
+        return true
+    }
+
     // ==================== 动作接口 ====================
 
     fun doPass() {
@@ -1094,6 +1206,12 @@ class GameEngine(
         /** 贴身判定阈值：与对方持球者距离 ≤ 此值时，大按钮从"加速"切为"铲球" */
         const val TACKLE_TRIGGER_DIST = 2.8f
 
+        /** 每队换人名额上限 */
+        const val MAX_SUBS = 5
+
+        private val BENCH_ROLES = listOf("CB", "LB", "CM", "CM", "FW")
+        private val BENCH_NUMBERS = listOf(12, 13, 14, 15, 16)
+
         // 4-3-3 基础站位 (x, z)，主队进攻 +z，场地 105 x 68
         private val BASE_POSITIONS = listOf(
             Pair(0f, -44f),                                                   // GK
@@ -1120,6 +1238,27 @@ class GameEngine(
                     isGoalkeeper = i == 0,
                     position = Vector3(x * sign, 0f, z * sign),
                     homePosition = Vector3(x * sign, 0f, z * sign)
+                )
+            }
+        }
+
+        /**
+         * 生成替补席（5 名外场球员，站在场外待命，换人后顶替同槽位上场）
+         */
+        fun createBenchPlayers(team: com.football.game.model.Team?, side: GameState.TeamSide): List<Player> {
+            val offZ = if (side == GameState.TeamSide.HOME) -62f else 62f
+            return BENCH_ROLES.mapIndexed { i, role ->
+                Player(
+                    id = "${team?.id ?: side.name}_sub_$i",
+                    name = "${BENCH_NUMBERS[i]}号",
+                    number = BENCH_NUMBERS[i],
+                    role = role,
+                    teamSide = side,
+                    teamId = team?.id ?: "",
+                    teamName = team?.name ?: "",
+                    isGoalkeeper = false,
+                    position = Vector3((i - 2) * 4f, 0f, offZ),
+                    homePosition = Vector3((i - 2) * 4f, 0f, offZ)
                 )
             }
         }
