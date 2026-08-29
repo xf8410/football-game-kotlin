@@ -871,16 +871,6 @@ class GameEngine(
         shootFrom(player)
     }
 
-    fun doTackle(type: TackleRules.TackleType) {
-        val defender = activePlayer ?: return
-        val victim = ballOwner ?: return
-        if (victim.teamSide == defender.teamSide) return
-        if (defender.tackleCooldown > 0f) return
-        if (ballControlTime < 0.2f) return
-        defender.tackleCooldown = 1.0f
-        resolveTackle(defender, victim, type)
-    }
-
     fun doThroughBall() {
         val player = activePlayer ?: return
         if (ballOwner != player) return
