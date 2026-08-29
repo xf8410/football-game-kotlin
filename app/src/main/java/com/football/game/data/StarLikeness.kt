@@ -307,8 +307,14 @@ object StarLikeness {
 
     // ==================== 3D 模型外观 ====================
 
-    private val skinPalette = listOf(0xFFF3D0B0, 0xFFE8B58B, 0xFFD9A066, 0xFFC68642, 0xFF9C6B43, 0xFF7A4A2B)
-    private val hairPalette = listOf(0xFF1B1B1B, 0xFF2B1B12, 0xFF3B2A1E, 0xFF4A3526, 0xFF6B4423)
+    private val skinPalette = listOf(
+        0xFFF3D0B0.toInt(), 0xFFE8B58B.toInt(), 0xFFD9A066.toInt(),
+        0xFFC68642.toInt(), 0xFF9C6B43.toInt(), 0xFF7A4A2B.toInt()
+    )
+    private val hairPalette = listOf(
+        0xFF1B1B1B.toInt(), 0xFF2B1B12.toInt(), 0xFF3B2A1E.toInt(),
+        0xFF4A3526.toInt(), 0xFF6B4423.toInt()
+    )
     private val style3DPalette = listOf(
         HairStyle3D.SHORT, HairStyle3D.BUZZ, HairStyle3D.SHORT,
         HairStyle3D.CURLY, HairStyle3D.SHORT, HairStyle3D.FLOW
