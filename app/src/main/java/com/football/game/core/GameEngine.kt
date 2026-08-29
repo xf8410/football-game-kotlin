@@ -232,11 +232,12 @@ class GameEngine(
         val dx = p.position.x - ballPosition.x
         val dz = p.position.z - ballPosition.z
         if (dx * dx + dz * dz < 1.2f * 1.2f) {
-            setBallOwner(p)
+            assignBallOwner(p)
         }
     }
 
-    private fun setBallOwner(p: Player) {
+    /** 持球权转移（同步 hasBall / 控球保护时间） */
+    private fun assignBallOwner(p: Player) {
         if (ballOwner == p) return
         ballOwner?.hasBall = false
         ballOwner = p
@@ -514,7 +515,7 @@ class GameEngine(
             val taker = allActive().filter { it.teamSide == attackingSide && !it.isGoalkeeper }
                 .maxByOrNull { it.shooting }
             if (taker != null) {
-                setBallOwner(taker)
+                assignBallOwner(taker)
                 shootFrom(taker)
                 // 门将随机扑救方向
                 gkDiveTimer = 0.8f
@@ -525,7 +526,7 @@ class GameEngine(
             val taker = allActive().filter { it.teamSide == attackingSide && !it.isGoalkeeper }
                 .minByOrNull { it.position.distanceTo(ballPosition) }
             if (taker != null) {
-                setBallOwner(taker)
+                assignBallOwner(taker)
                 // 玩家操控球队时把控制权交给主罚者
                 if (taker.teamSide == playerSide) {
                     activePlayer?.isActive = false
@@ -640,7 +641,7 @@ class GameEngine(
         if (ballOwner == null && pickupCooldown <= 0f && ballHeight < 2.2f &&
             p.position.distanceTo(ballPosition) < 2.0f
         ) {
-            setBallOwner(p)
+            assignBallOwner(p)
         }
 
         // 持球后大脚开往前场
@@ -868,6 +869,16 @@ class GameEngine(
     fun doShoot() {
         val player = activePlayer ?: return
         shootFrom(player)
+    }
+
+    fun doTackle(type: TackleRules.TackleType) {
+        val defender = activePlayer ?: return
+        val victim = ballOwner ?: return
+        if (victim.teamSide == defender.teamSide) return
+        if (defender.tackleCooldown > 0f) return
+        if (ballControlTime < 0.2f) return
+        defender.tackleCooldown = 1.0f
+        resolveTackle(defender, victim, type)
     }
 
     fun doThroughBall() {
