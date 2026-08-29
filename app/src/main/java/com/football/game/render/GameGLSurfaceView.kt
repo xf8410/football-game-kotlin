@@ -5,8 +5,8 @@ import android.opengl.GLSurfaceView
 import android.util.AttributeSet
 import android.view.MotionEvent
 import com.football.game.core.Vector3
-import com.football.game.data.PlayerLook
 import com.football.game.model.Player
+import com.football.game.ui.component.PlayerLook
 
 /**
  * 游戏 OpenGL 视图
