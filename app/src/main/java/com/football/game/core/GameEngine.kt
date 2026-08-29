@@ -18,7 +18,7 @@ enum class MatchPhase {
  * 裁判状态
  */
 data class RefereeState(
-    val position: Vector3 = Vector3(0f, 0f, -10f),
+    var position: Vector3 = Vector3(0f, 0f, -10f),
     var facing: Vector3 = Vector3(0f, 0f, 1f),
     var speed: Float = 0f,             // 当前速度（跑动动画用）
     var whistleTimer: Float = 0f,      // >0 = 正在吹哨
@@ -30,8 +30,7 @@ data class RefereeState(
 private data class SetPieceData(
     val spot: Vector3,
     val attackingSide: GameState.TeamSide,
-    val isPenalty: Boolean,
-    val foulText: String
+    val isPenalty: Boolean
 )
 
 /**
@@ -369,9 +368,8 @@ class GameEngine(
         }
 
         // ==================== 犯规！ ====================
-        val slide = type != TackleRules.TackleType.STANDING
         startTackleAnim(defender, type)
-        if (slide) onSound?.invoke("tackle")
+        if (type != TackleRules.TackleType.STANDING) onSound?.invoke("tackle")
 
         // 进攻方被铲倒
         victim.fallTimer = 1.6f
@@ -416,8 +414,7 @@ class GameEngine(
         pendingSetPiece = SetPieceData(
             spot = Vector3(victim.position.x, 0f, victim.position.z),
             attackingSide = victim.teamSide,
-            isPenalty = isPenalty,
-            foulText = ""
+            isPenalty = isPenalty
         )
         phase = MatchPhase.FOUL_STOP
         freezeTimer = 1.2f
@@ -498,7 +495,7 @@ class GameEngine(
                 .take(2).forEachIndexed { i, d ->
                     d.position = Vector3(wallCenter.x + (i - 0.5f) * 1.8f, 0f, wallCenter.z)
                 }
-            onBanner?.invoke("任意球（${attackingSide.name == "HOME"}判给进攻方）")
+            onBanner?.invoke("任意球")
         }
     }
 
@@ -514,7 +511,6 @@ class GameEngine(
 
         if (data.isPenalty) {
             val attackingSide = data.attackingSide
-            val attackSign = if (attackingSide == GameState.TeamSide.HOME) 1f else -1f
             val taker = allActive().filter { it.teamSide == attackingSide && !it.isGoalkeeper }
                 .maxByOrNull { it.shooting }
             if (taker != null) {
@@ -558,12 +554,11 @@ class GameEngine(
         // ===== 盘带方向判定：7 个候选方向，选"空当 + 逼近球门"最优 =====
         val opponents = (if (p.teamSide == GameState.TeamSide.HOME) awayPlayers else homePlayers)
             .filter { !it.sentOff }
-        val angles = floatArrayOf(0f, 25f, -25f, 50f, -50f, 75f, -75f)
+        val angles = doubleArrayOf(0.0, 25.0, -25.0, 50.0, -50.0, 75.0, -75.0)
         var bestDir = Vector3(0f, 0f, attackSign)
         var bestScore = -Float.MAX_VALUE
         for (deg in angles) {
-            val rad = Math.toRadians(deg.toDouble())
-            val dir = Vector3(sin(rad).toFloat(), 0f, attackSign * cos(rad).toFloat())
+            val dir = Vector3(sin(deg), 0f, attackSign * cos(deg))
             val probe = p.position + dir * 3.5f
             var openness = 6f
             for (o in opponents) {
@@ -687,11 +682,11 @@ class GameEngine(
      * 裁判 AI：跟随攻防跑动（保持在球侧后方约 10m），犯规时跑向事发地鸣哨
      */
     private fun updateReferee(delta: Float) {
-        val target = when (phase) {
+        var target = when (phase) {
             MatchPhase.PLAYING -> Vector3(
                 ballPosition.x - 6f,
                 0f,
-                ballPosition.z - 6f * (if (ballVelocity.z >= 0f) 1f else -1f)
+                ballPosition.z - 6f
             )
             else -> {
                 val spot = pendingSetPiece?.spot ?: ballPosition
@@ -702,7 +697,11 @@ class GameEngine(
         val toBall = target - ballPosition
         if (toBall.length() < 5f) {
             val dir = toBall.normalized()
-            target.copy(x = ballPosition.x + dir.x * 5f, z = ballPosition.z + dir.z * 5f)
+            target = Vector3(
+                ballPosition.x + dir.x * 5f,
+                0f,
+                ballPosition.z + dir.z * 5f
+            )
         }
 
         val dx = target.x - referee.position.x
@@ -869,16 +868,6 @@ class GameEngine(
     fun doShoot() {
         val player = activePlayer ?: return
         shootFrom(player)
-    }
-
-    fun doTackle(type: TackleRules.TackleType) {
-        val defender = activePlayer ?: return
-        val victim = ballOwner ?: return
-        if (victim.teamSide == defender.teamSide) return
-        if (defender.tackleCooldown > 0f) return
-        if (ballControlTime < 0.2f) return
-        defender.tackleCooldown = 1.0f
-        resolveTackle(defender, victim, type)
     }
 
     fun doThroughBall() {
