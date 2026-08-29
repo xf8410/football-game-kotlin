@@ -59,9 +59,10 @@ data class Player(
 ) {
     /**
      * 动画状态枚举
+     * FALL = 被铲倒地（裁判判罚任意球/点球时）
      */
     enum class AnimState {
-        IDLE, WALK, RUN, SPRINT, KICK, TACKLE, HEADER, DIVE, CELEBRATE
+        IDLE, WALK, RUN, SPRINT, KICK, TACKLE, HEADER, DIVE, CELEBRATE, FALL
     }
 
     /**
