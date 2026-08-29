@@ -4,6 +4,8 @@ import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import com.football.game.core.GameState
+import com.football.game.core.RefereeState
+import com.football.game.core.TackleRules
 import com.football.game.core.Vector3
 import com.football.game.model.Player
 import com.football.game.ui.component.HairStyle3D
@@ -18,8 +20,8 @@ import kotlin.math.sin
 
 /**
  * 游戏渲染器
- * OpenGL ES 2.0：真实关节式球员模型（头/发型/躯干/手臂/腿/球袜），
- * 条纹草皮 + 白线球场 + 球门，替代旧的"胶囊/圆点"占位渲染
+ * OpenGL ES 2.0：真实关节式球员模型（头/发型/躯干/手臂/腿/球袜/球鞋），
+ * 裁判模型（吹哨 + 红黄牌），滑铲/倒地姿态，条纹草皮 + 白线球场 + 球门
  */
 class GameRenderer : GLSurfaceView.Renderer {
 
@@ -83,6 +85,7 @@ class GameRenderer : GLSurfaceView.Renderer {
     private var awayPlayers: List<Player> = emptyList()
     private var homeLooks: List<PlayerLook> = emptyList()
     private var awayLooks: List<PlayerLook> = emptyList()
+    private var refereeState: RefereeState? = null
     private var ballPosition = Vector3.ZERO
     private var ballHeight = 0f
     private var activePlayerIndex = -1
@@ -138,6 +141,7 @@ class GameRenderer : GLSurfaceView.Renderer {
 
         drawField()
         drawAllPlayers()
+        refereeState?.let { drawReferee(it) }
         drawBall()
         frameTime += 0.016f
     }
@@ -164,38 +168,29 @@ class GameRenderer : GLSurfaceView.Renderer {
 
         // ---- 白线 ----
         val lw = 0.15f
-        // 边线
         drawShapeAt(quad, -halfW, 0.03f, 0f, lw, 1f, GameState.FIELD_LENGTH + lw, 0f, 0.95f, 0.95f, 0.95f)
         drawShapeAt(quad, halfW, 0.03f, 0f, lw, 1f, GameState.FIELD_LENGTH + lw, 0f, 0.95f, 0.95f, 0.95f)
-        // 底线
         drawShapeAt(quad, 0f, 0.03f, -halfL, GameState.FIELD_WIDTH + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
         drawShapeAt(quad, 0f, 0.03f, halfL, GameState.FIELD_WIDTH + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
-        // 中线
         drawShapeAt(quad, 0f, 0.03f, 0f, GameState.FIELD_WIDTH + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
-        // 中圈
         drawShapeAt(centerCircle, 0f, 0.05f, 0f, 1f, 1f, 1f, 0f, 0.95f, 0.95f, 0.95f)
-        // 中点
         drawShapeAt(quad, 0f, 0.04f, 0f, 0.4f, 1f, 0.4f, 0f, 0.95f, 0.95f, 0.95f)
 
         // 两端禁区 + 小禁区 + 点球点 + 球门
         for (sign in floatArrayOf(-1f, 1f)) {
             val goalZ = halfL * sign
             val dir = -sign
-            // 大禁区：宽 40.32 深 16.5
             val boxW = 40.32f
             val boxD = 16.5f
             drawShapeAt(quad, 0f, 0.03f, goalZ + dir * boxD, boxW + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
             drawShapeAt(quad, -boxW / 2, 0.03f, goalZ + dir * boxD / 2, lw, 1f, boxD, 0f, 0.95f, 0.95f, 0.95f)
             drawShapeAt(quad, boxW / 2, 0.03f, goalZ + dir * boxD / 2, lw, 1f, boxD, 0f, 0.95f, 0.95f, 0.95f)
-            // 小禁区：宽 18.32 深 5.5
             val gW = 18.32f
             val gD = 5.5f
             drawShapeAt(quad, 0f, 0.03f, goalZ + dir * gD, gW + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
             drawShapeAt(quad, -gW / 2, 0.03f, goalZ + dir * gD / 2, lw, 1f, gD, 0f, 0.95f, 0.95f, 0.95f)
             drawShapeAt(quad, gW / 2, 0.03f, goalZ + dir * gD / 2, lw, 1f, gD, 0f, 0.95f, 0.95f, 0.95f)
-            // 点球点
             drawShapeAt(quad, 0f, 0.04f, goalZ + dir * 11f, 0.35f, 1f, 0.35f, 0f, 0.95f, 0.95f, 0.95f)
-            // 球门（门柱 + 横梁）
             val postH = 2.44f
             val goalHalf = GameState.GOAL_WIDTH / 2
             drawShapeAt(cube, -goalHalf, postH / 2, goalZ, 0.12f, postH, 0.12f, 0f, 0.95f, 0.95f, 0.95f)
@@ -208,6 +203,7 @@ class GameRenderer : GLSurfaceView.Renderer {
 
     private fun drawAllPlayers() {
         for ((index, player) in homePlayers.withIndex()) {
+            if (player.sentOff) continue   // 红牌罚下不再上场
             drawPlayer(
                 player = player,
                 look = homeLooks.getOrNull(index) ?: defaultLook(true),
@@ -216,6 +212,7 @@ class GameRenderer : GLSurfaceView.Renderer {
             )
         }
         for ((index, player) in awayPlayers.withIndex()) {
+            if (player.sentOff) continue
             drawPlayer(
                 player = player,
                 look = awayLooks.getOrNull(index) ?: defaultLook(false),
@@ -227,7 +224,8 @@ class GameRenderer : GLSurfaceView.Renderer {
 
     /**
      * 关节式球员模型：
-     * 阴影 → 双腿(摆动) → 球袜 → 球裤 → 躯干 → 球袖 → 双臂(摆动) → 头 → 发型 → 选中标记
+     * 阴影 → 双腿(摆动) → 球袜 → 球鞋 → 球裤 → 躯干 → 球袖 → 双臂(摆动) → 头 → 发型 → 选中标记
+     * 特殊姿态：滑铲（TACKLE，身体后倒 + 前腿伸出）、被铲倒地（FALL，平躺）
      */
     private fun drawPlayer(player: Player, look: PlayerLook, index: Int, isActive: Boolean) {
         val pos = player.position
@@ -238,40 +236,77 @@ class GameRenderer : GLSurfaceView.Renderer {
             kotlin.math.atan2(face.x.toDouble(), face.z.toDouble())
         ).toFloat()
 
+        val sliding = player.animState == Player.AnimState.TACKLE && player.slideTimer > 0f
+        val falling = player.animState == Player.AnimState.FALL && player.fallTimer > 0f
+        val lean = when {
+            falling -> -86f   // 平躺
+            sliding -> -60f   // 后仰滑行
+            else -> 0f
+        }
+
         val amp = (speed / 6f).coerceIn(0f, 1f)
         val phase = frameTime * (4f + speed * 1.6f) + index * 1.9f
-        val swing = sin(phase) * 32f * amp
+        var swing = sin(phase) * 32f * amp
+        if (sliding) swing = 0f
+        if (falling) swing = 0f
 
         val kit1 = rgb(look.kitColor1)
         val kit2 = rgb(look.kitColor2)
         val skin = rgb(look.skinColor)
         val hairC = rgb(look.hairColor)
+        val shoe = floatArrayOf(0.10f, 0.10f, 0.12f)
 
         // 阴影
         drawShapeAt(quad, pos.x, 0.02f, pos.z, 0.55f, 1f, 0.55f, 0f, 0f, 0f, 0f, 0.28f)
 
-        // 双腿（肤色）+ 球袜
-        drawBody(cube, pos.x, pos.z, rotY, -0.11f, 0.80f, 0f, swing, -0.30f, 0.15f, 0.60f, 0.17f, skin[0], skin[1], skin[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0.11f, 0.80f, 0f, -swing, -0.30f, 0.15f, 0.60f, 0.17f, skin[0], skin[1], skin[2])
-        drawBody(cube, pos.x, pos.z, rotY, -0.11f, 0.38f, 0f, swing, 0f, 0.16f, 0.18f, 0.18f, kit2[0], kit2[1], kit2[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0.11f, 0.38f, 0f, -swing, 0f, 0.16f, 0.18f, 0.18f, kit2[0], kit2[1], kit2[2])
+        // 前腿摆动角：滑铲时前腿伸出
+        val legFront = when {
+            sliding -> 72f
+            falling -> 8f
+            else -> swing
+        }
+        val legBack = when {
+            sliding -> -18f
+            falling -> -6f
+            else -> -swing
+        }
+
+        // 双腿（肤色）
+        drawBody(cube, pos.x, pos.z, rotY, lean, -0.11f, 0.80f, 0f, legFront, -0.30f, 0.15f, 0.60f, 0.17f, skin[0], skin[1], skin[2])
+        drawBody(cube, pos.x, pos.z, rotY, lean, 0.11f, 0.80f, 0f, legBack, -0.30f, 0.15f, 0.60f, 0.17f, skin[0], skin[1], skin[2])
+        // 球袜
+        drawBody(cube, pos.x, pos.z, rotY, lean, -0.11f, 0.38f, 0f, legFront, 0f, 0.16f, 0.18f, 0.18f, kit2[0], kit2[1], kit2[2])
+        drawBody(cube, pos.x, pos.z, rotY, lean, 0.11f, 0.38f, 0f, legBack, 0f, 0.16f, 0.18f, 0.18f, kit2[0], kit2[1], kit2[2])
+        // 球鞋
+        drawBody(cube, pos.x, pos.z, rotY, lean, -0.11f, 0.18f, 0.02f, legFront, 0f, 0.15f, 0.09f, 0.24f, shoe[0], shoe[1], shoe[2])
+        drawBody(cube, pos.x, pos.z, rotY, lean, 0.11f, 0.18f, 0.02f, legBack, 0f, 0.15f, 0.09f, 0.24f, shoe[0], shoe[1], shoe[2])
 
         // 球裤
-        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.90f, 0f, 0f, 0f, 0.34f, 0.22f, 0.24f, kit2[0], kit2[1], kit2[2])
+        drawBody(cube, pos.x, pos.z, rotY, lean, 0f, 0.90f, 0f, 0f, 0f, 0.34f, 0.22f, 0.24f, kit2[0], kit2[1], kit2[2])
         // 躯干（球衣）
-        drawBody(cube, pos.x, pos.z, rotY, 0f, 1.30f, 0f, 0f, 0f, 0.44f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
+        drawBody(cube, pos.x, pos.z, rotY, lean, 0f, 1.30f, 0f, 0f, 0f, 0.44f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
         // 球袖
-        drawBody(cube, pos.x, pos.z, rotY, -0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, kit1[0], kit1[1], kit1[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, kit1[0], kit1[1], kit1[2])
-        // 双臂（肤色，反向摆动）
-        drawBody(cube, pos.x, pos.z, rotY, -0.29f, 1.52f, 0f, -swing * 0.8f, -0.24f, 0.09f, 0.48f, 0.11f, skin[0], skin[1], skin[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0.29f, 1.52f, 0f, swing * 0.8f, -0.24f, 0.09f, 0.48f, 0.11f, skin[0], skin[1], skin[2])
+        drawBody(cube, pos.x, pos.z, rotY, lean, -0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, kit1[0], kit1[1], kit1[2])
+        drawBody(cube, pos.x, pos.z, rotY, lean, 0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, kit1[0], kit1[1], kit1[2])
+        // 双臂（肤色，反向摆动；倒地时张开）
+        val armL = when {
+            falling -> -35f
+            sliding -> -50f
+            else -> -swing * 0.8f
+        }
+        val armR = when {
+            falling -> 35f
+            sliding -> 30f
+            else -> swing * 0.8f
+        }
+        drawBody(cube, pos.x, pos.z, rotY, lean, -0.29f, 1.52f, 0f, armL, -0.24f, 0.09f, 0.48f, 0.11f, skin[0], skin[1], skin[2])
+        drawBody(cube, pos.x, pos.z, rotY, lean, 0.29f, 1.52f, 0f, armR, -0.24f, 0.09f, 0.48f, 0.11f, skin[0], skin[1], skin[2])
 
         // 头（肤色球体）
-        drawBody(sphere, pos.x, pos.z, rotY, 0f, 1.74f, 0f, 0f, 0f, 0.15f, 0.165f, 0.15f, skin[0], skin[1], skin[2])
+        drawBody(sphere, pos.x, pos.z, rotY, lean, 0f, 1.74f, 0f, 0f, 0f, 0.15f, 0.165f, 0.15f, skin[0], skin[1], skin[2])
 
         // 发型（俯视角下最醒目的球星特征）
-        drawHair(look.hairStyle3D, hairC, pos.x, pos.z, rotY)
+        drawHair(look.hairStyle3D, hairC, pos.x, pos.z, rotY, lean)
 
         // 受控球员标记
         if (isActive) {
@@ -280,21 +315,21 @@ class GameRenderer : GLSurfaceView.Renderer {
         }
     }
 
-    private fun drawHair(style: HairStyle3D, hair: FloatArray, px: Float, pz: Float, rotY: Float) {
+    private fun drawHair(style: HairStyle3D, hair: FloatArray, px: Float, pz: Float, rotY: Float, lean: Float) {
         when (style) {
             HairStyle3D.BUZZ ->
-                drawBody(sphere, px, pz, rotY, 0f, 1.78f, 0f, 0f, 0f, 0.155f, 0.125f, 0.155f, hair[0], hair[1], hair[2])
+                drawBody(sphere, px, pz, rotY, lean, 0f, 1.78f, 0f, 0f, 0f, 0.155f, 0.125f, 0.155f, hair[0], hair[1], hair[2])
             HairStyle3D.SHORT ->
-                drawBody(sphere, px, pz, rotY, 0f, 1.78f, 0f, 0f, 0f, 0.16f, 0.145f, 0.16f, hair[0], hair[1], hair[2])
+                drawBody(sphere, px, pz, rotY, lean, 0f, 1.78f, 0f, 0f, 0f, 0.16f, 0.145f, 0.16f, hair[0], hair[1], hair[2])
             HairStyle3D.FLOW ->
-                drawBody(sphere, px, pz, rotY, 0f, 1.77f, -0.03f, 0f, 0f, 0.17f, 0.155f, 0.20f, hair[0], hair[1], hair[2])
+                drawBody(sphere, px, pz, rotY, lean, 0f, 1.77f, -0.03f, 0f, 0f, 0.17f, 0.155f, 0.20f, hair[0], hair[1], hair[2])
             HairStyle3D.AFRO ->
-                drawBody(sphere, px, pz, rotY, 0f, 1.80f, 0f, 0f, 0f, 0.22f, 0.20f, 0.22f, hair[0], hair[1], hair[2])
+                drawBody(sphere, px, pz, rotY, lean, 0f, 1.80f, 0f, 0f, 0f, 0.22f, 0.20f, 0.22f, hair[0], hair[1], hair[2])
             HairStyle3D.CURLY ->
-                drawBody(sphere, px, pz, rotY, 0f, 1.78f, 0f, 0f, 0f, 0.175f, 0.16f, 0.175f, hair[0], hair[1], hair[2])
+                drawBody(sphere, px, pz, rotY, lean, 0f, 1.78f, 0f, 0f, 0f, 0.175f, 0.16f, 0.175f, hair[0], hair[1], hair[2])
             HairStyle3D.PONYTAIL -> {
-                drawBody(sphere, px, pz, rotY, 0f, 1.78f, 0f, 0f, 0f, 0.16f, 0.145f, 0.16f, hair[0], hair[1], hair[2])
-                drawBody(sphere, px, pz, rotY, 0f, 1.58f, -0.17f, 0f, 0f, 0.07f, 0.11f, 0.07f, hair[0], hair[1], hair[2])
+                drawBody(sphere, px, pz, rotY, lean, 0f, 1.78f, 0f, 0f, 0f, 0.16f, 0.145f, 0.16f, hair[0], hair[1], hair[2])
+                drawBody(sphere, px, pz, rotY, lean, 0f, 1.58f, -0.17f, 0f, 0f, 0.07f, 0.11f, 0.07f, hair[0], hair[1], hair[2])
             }
             HairStyle3D.NONE -> {}
         }
@@ -308,17 +343,84 @@ class GameRenderer : GLSurfaceView.Renderer {
         }
     }
 
+    // ==================== 裁判 ====================
+
+    /**
+     * 裁判模型：黑色裁判服，吹哨时嘴边哨子脉冲放大，出牌时头顶举起红/黄牌
+     */
+    private fun drawReferee(ref: RefereeState) {
+        val pos = ref.position
+        val rotY = Math.toDegrees(
+            kotlin.math.atan2(ref.facing.x.toDouble(), ref.facing.z.toDouble())
+        ).toFloat()
+
+        val amp = (ref.speed / 6f).coerceIn(0f, 1f)
+        val swing = sin(frameTime * 6f) * 30f * amp
+
+        val kit = floatArrayOf(0.07f, 0.07f, 0.08f)
+        val skin = rgb(0xFFE8B58B.toInt())
+        val hairC = rgb(0xFF2B1B12.toInt())
+        val shoe = floatArrayOf(0.10f, 0.10f, 0.12f)
+
+        // 阴影
+        drawShapeAt(quad, pos.x, 0.02f, pos.z, 0.5f, 1f, 0.5f, 0f, 0f, 0f, 0f, 0.3f)
+
+        // 腿 + 球袜 + 球鞋（裁判黑色球袜）
+        drawBody(cube, pos.x, pos.z, rotY, 0f, -0.11f, 0.80f, 0f, swing, -0.30f, 0.15f, 0.60f, 0.17f, kit[0], kit[1], kit[2])
+        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.11f, 0.80f, 0f, -swing, -0.30f, 0.15f, 0.60f, 0.17f, kit[0], kit[1], kit[2])
+        drawBody(cube, pos.x, pos.z, rotY, 0f, -0.11f, 0.38f, 0f, swing, 0f, 0.16f, 0.18f, 0.18f, kit[0], kit[1], kit[2])
+        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.11f, 0.38f, 0f, -swing, 0f, 0.16f, 0.18f, 0.18f, kit[0], kit[1], kit[2])
+        drawBody(cube, pos.x, pos.z, rotY, 0f, -0.11f, 0.18f, 0.02f, swing, 0f, 0.15f, 0.09f, 0.24f, shoe[0], shoe[1], shoe[2])
+        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.11f, 0.18f, 0.02f, -swing, 0f, 0.15f, 0.09f, 0.24f, shoe[0], shoe[1], shoe[2])
+
+        // 球裤 + 躯干 + 球袖 + 双臂
+        drawBody(cube, pos.x, pos.z, rotY, 0f, 0f, 0.90f, 0f, 0f, 0f, 0.34f, 0.22f, 0.24f, kit[0], kit[1], kit[2])
+        drawBody(cube, pos.x, pos.z, rotY, 0f, 0f, 1.30f, 0f, 0f, 0f, 0.44f, 0.60f, 0.26f, kit[0], kit[1], kit[2])
+        drawBody(cube, pos.x, pos.z, rotY, 0f, -0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, kit[0], kit[1], kit[2])
+        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, kit[0], kit[1], kit[2])
+        drawBody(cube, pos.x, pos.z, rotY, 0f, -0.29f, 1.52f, 0f, -swing * 0.8f, -0.24f, 0.09f, 0.48f, 0.11f, skin[0], skin[1], skin[2])
+        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.29f, 1.52f, 0f, swing * 0.8f, -0.24f, 0.09f, 0.48f, 0.11f, skin[0], skin[1], skin[2])
+
+        // 头 + 头发
+        drawBody(sphere, pos.x, pos.z, rotY, 0f, 0f, 1.74f, 0f, 0f, 0f, 0.15f, 0.165f, 0.15f, skin[0], skin[1], skin[2])
+        drawBody(sphere, pos.x, pos.z, rotY, 0f, 0f, 1.78f, 0f, 0f, 0f, 0.16f, 0.145f, 0.16f, hairC[0], hairC[1], hairC[2])
+
+        // 哨子（吹哨时嘴边出现 + 脉冲放大）
+        if (ref.whistleTimer > 0f) {
+            val pulse = 1f + 0.35f * sin(frameTime * 25f)
+            drawBody(
+                sphere, pos.x, pos.z, rotY, 0f,
+                0f, 1.72f, 0.17f, 0f, 0f,
+                0.05f * pulse, 0.05f * pulse, 0.05f * pulse,
+                0.25f, 0.25f, 0.28f
+            )
+        }
+
+        // 红黄牌（头顶举起的小卡片）
+        if (ref.cardTimer > 0f && ref.cardType != TackleRules.CardType.NONE) {
+            val cardColor = if (ref.cardType == TackleRules.CardType.RED) {
+                floatArrayOf(0.88f, 0.10f, 0.10f)
+            } else {
+                floatArrayOf(1.0f, 0.85f, 0.10f)
+            }
+            drawBody(
+                cube, pos.x, pos.z, rotY, 0f,
+                0.16f, 2.08f, 0.05f, 0f, 0f,
+                0.16f, 0.24f, 0.02f,
+                cardColor[0], cardColor[1], cardColor[2]
+            )
+        }
+    }
+
     // ==================== 球 ====================
 
     private fun drawBall() {
-        // 球体
         drawShapeAt(
             sphere,
             ballPosition.x, 0.11f + ballHeight, ballPosition.z,
             0.11f, 0.11f, 0.11f, 0f,
             0.96f, 0.96f, 0.96f
         )
-        // 影子
         val shadowSize = 0.28f + ballHeight * 0.05f
         drawShapeAt(
             quad,
@@ -349,11 +451,13 @@ class GameRenderer : GLSurfaceView.Renderer {
 
     /**
      * 球员身体部件：
-     * 平移到球员 → 朝向旋转 → 部件偏移 → rotX 摆动 → pivotDrop 下移 → 缩放
+     * 平移到球员 → 朝向旋转 → leanX 全身倾倒（滑铲/倒地姿态）
+     * → 部件偏移 → rotX 摆动 → pivotDrop 下移 → 缩放
      */
     private fun drawBody(
         shape: GLShape,
         px: Float, pz: Float, rotY: Float,
+        leanX: Float,
         ox: Float, oy: Float, oz: Float,
         rotX: Float,
         pivotDrop: Float,
@@ -365,6 +469,7 @@ class GameRenderer : GLSurfaceView.Renderer {
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, px, 0f, pz)
         if (rotY != 0f) Matrix.rotateM(modelMatrix, 0, rotY, 0f, 1f, 0f)
+        if (leanX != 0f) Matrix.rotateM(modelMatrix, 0, leanX, 1f, 0f, 0f)
         Matrix.translateM(modelMatrix, 0, ox, oy, oz)
         if (rotX != 0f) Matrix.rotateM(modelMatrix, 0, rotX, 1f, 0f, 0f)
         if (pivotDrop != 0f) Matrix.translateM(modelMatrix, 0, 0f, pivotDrop, 0f)
@@ -394,7 +499,8 @@ class GameRenderer : GLSurfaceView.Renderer {
         ballHeight: Float,
         activePlayerIndex: Int,
         homeLooks: List<PlayerLook> = emptyList(),
-        awayLooks: List<PlayerLook> = emptyList()
+        awayLooks: List<PlayerLook> = emptyList(),
+        referee: RefereeState? = null
     ) {
         this.homePlayers = homePlayers
         this.awayPlayers = awayPlayers
@@ -403,6 +509,7 @@ class GameRenderer : GLSurfaceView.Renderer {
         this.activePlayerIndex = activePlayerIndex
         if (homeLooks.isNotEmpty()) this.homeLooks = homeLooks
         if (awayLooks.isNotEmpty()) this.awayLooks = awayLooks
+        if (referee != null) this.refereeState = referee
     }
 
     // ==================== 着色器程序 ====================

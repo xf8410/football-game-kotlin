@@ -4,6 +4,7 @@ import android.content.Context
 import android.opengl.GLSurfaceView
 import android.util.AttributeSet
 import android.view.MotionEvent
+import com.football.game.core.RefereeState
 import com.football.game.core.Vector3
 import com.football.game.model.Player
 import com.football.game.ui.component.PlayerLook
@@ -48,7 +49,7 @@ class GameGLSurfaceView @JvmOverloads constructor(
     }
 
     /**
-     * 更新游戏数据（含球员外观）
+     * 更新游戏数据（含球员外观与裁判）
      */
     fun updateGameData(
         homePlayers: List<Player>,
@@ -57,7 +58,8 @@ class GameGLSurfaceView @JvmOverloads constructor(
         ballHeight: Float,
         activePlayerIndex: Int,
         homeLooks: List<PlayerLook> = emptyList(),
-        awayLooks: List<PlayerLook> = emptyList()
+        awayLooks: List<PlayerLook> = emptyList(),
+        referee: RefereeState? = null
     ) {
         renderer?.setGameData(
             homePlayers = homePlayers,
@@ -66,7 +68,8 @@ class GameGLSurfaceView @JvmOverloads constructor(
             ballHeight = ballHeight,
             activePlayerIndex = activePlayerIndex,
             homeLooks = homeLooks,
-            awayLooks = awayLooks
+            awayLooks = awayLooks,
+            referee = referee
         )
     }
 
