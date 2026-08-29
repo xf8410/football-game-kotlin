@@ -83,7 +83,7 @@ fun MatchScreen(
         )
     }
 
-    // 十一名球员（4-3-3，下标 9 为中锋/招牌球星位）+ 各 5 名替补
+    // 十一名球员（4-3-3，下标 9 为中锋/招牌球星位）+ 各 6 名替补（含门将）
     val gameEngine = remember(match) {
         GameEngine(
             match = match,
@@ -276,8 +276,8 @@ fun MatchScreen(
 }
 
 /**
- * 主动换人面板：选一名场上球员 + 一名替补 → 确认换人
- * 替补顶替同槽位上场（继承位置/阵型落位），门将不可换下，每队最多 5 个名额
+ * 主动换人面板：选一名场上球员（= 选替补要打的位置槽）+ 一名替补 → 确认换人
+ * 替补顶替所选球员的位置槽上场；门将位只能换上门将替补；每队最多 5 个名额
  */
 @Composable
 private fun SubstitutionDialog(
@@ -287,9 +287,14 @@ private fun SubstitutionDialog(
     var selectedOut by remember { mutableStateOf<Player?>(null) }
     var selectedSub by remember { mutableStateOf<Player?>(null) }
 
-    val onField = gameEngine.homePlayers.filter { !it.isGoalkeeper && !it.sentOff }
+    val onField = gameEngine.homePlayers.filter { !it.sentOff }
     val bench = gameEngine.substitutesFor(GameState.TeamSide.HOME)
     val subsLeft = GameEngine.MAX_SUBS - gameEngine.homeSubsUsed
+    // 选了门将下场 → 只显示门将替补；选了外场球员 → 只显示外场替补
+    val benchFiltered = when (val out = selectedOut) {
+        null -> bench
+        else -> bench.filter { it.isGoalkeeper == out.isGoalkeeper }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -305,7 +310,7 @@ private fun SubstitutionDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    text = "选择下场的场上球员：",
+                    text = "第一步：选下场的球员（替补将顶替他的位置）",
                     color = Color(0xFFFFD54F),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
@@ -313,14 +318,17 @@ private fun SubstitutionDialog(
                 onField.forEach { p ->
                     val selected = selectedOut === p
                     Text(
-                        text = "${p.number}号 ${p.role}" + if (p.yellowCards > 0) "  🟨×${p.yellowCards}" else "",
+                        text = "${p.number}号 ${roleLabel(p.role)}" + if (p.yellowCards > 0) "  🟨×${p.yellowCards}" else "",
                         color = if (selected) Color(0xFF80CBC4) else Color.White,
                         fontSize = 14.sp,
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (selected) Color(0xFF2E7D32) else Color.Transparent)
-                            .clickable { selectedOut = if (selected) null else p }
+                            .clickable {
+                                selectedOut = if (selected) null else p
+                                if (selectedOut == null) selectedSub = null
+                            }
                             .padding(horizontal = 6.dp, vertical = 7.dp)
                     )
                 }
@@ -328,7 +336,8 @@ private fun SubstitutionDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "选择替补上场：",
+                    text = "第二步：选替补上场" +
+                        if (selectedOut != null) "（顶替${selectedOut!!.number}号位）" else "",
                     color = Color(0xFFFFD54F),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
@@ -339,11 +348,17 @@ private fun SubstitutionDialog(
                         color = Color(0xFFBDBDBD),
                         fontSize = 13.sp
                     )
+                } else if (benchFiltered.isEmpty()) {
+                    Text(
+                        text = "所选位置没有对应替补",
+                        color = Color(0xFFBDBDBD),
+                        fontSize = 13.sp
+                    )
                 }
-                bench.forEach { p ->
+                benchFiltered.forEach { p ->
                     val selected = selectedSub === p
                     Text(
-                        text = "${p.number}号 ${p.role}",
+                        text = "${p.number}号 ${roleLabel(p.role)}",
                         color = if (selected) Color(0xFF80CBC4) else Color.White,
                         fontSize = 14.sp,
                         modifier = Modifier
@@ -352,6 +367,14 @@ private fun SubstitutionDialog(
                             .background(if (selected) Color(0xFF2E7D32) else Color.Transparent)
                             .clickable { selectedSub = if (selected) null else p }
                             .padding(horizontal = 6.dp, vertical = 7.dp)
+                    )
+                }
+                if (selectedOut == null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "提示：门将位只能换上门将替补（12号）",
+                        color = Color(0xFFBDBDBD),
+                        fontSize = 12.sp
                     )
                 }
             }
@@ -375,6 +398,19 @@ private fun SubstitutionDialog(
             }
         }
     )
+}
+
+/** 位置代码 → 中文名 */
+private fun roleLabel(role: String): String = when (role) {
+    "GK" -> "门将"
+    "CB" -> "中后卫"
+    "LB" -> "左后卫"
+    "RB" -> "右后卫"
+    "CM" -> "中前卫"
+    "LW" -> "左边锋"
+    "RW" -> "右边锋"
+    "ST", "FW" -> "前锋"
+    else -> role
 }
 
 @Composable
