@@ -40,6 +40,7 @@ import kotlinx.coroutines.delay
 /**
  * 比赛屏幕：真实 OpenGL 3D 场景
  * 关节式球员模型 + 裁判（鸣哨/出牌）+ 铲球/犯规/任意球/点球 + 合成音效
+ * 极简按键：单一大按钮三态（加速/射门/铲球）随局势自动切换
  */
 @Composable
 fun MatchScreen(
@@ -57,6 +58,7 @@ fun MatchScreen(
     var isFinished by remember { mutableStateOf(false) }
     var currentAnnouncement by remember { mutableStateOf<GoalAnnouncement?>(null) }
     var hasBall by remember { mutableStateOf(false) }
+    var actionMode by remember { mutableStateOf(GameEngine.ActionMode.SPRINT) }
     var bannerText by remember { mutableStateOf<String?>(null) }
     var glView by remember { mutableStateOf<GameGLSurfaceView?>(null) }
 
@@ -151,6 +153,7 @@ fun MatchScreen(
                     referee = gameEngine.referee
                 )
                 hasBall = gameEngine.ballOwner?.isPlayerControlled == true
+                actionMode = gameEngine.currentActionMode()
             }
         }
     }
@@ -223,6 +226,7 @@ fun MatchScreen(
 
         TouchControls(
             gameEngine = gameEngine,
+            actionMode = actionMode,
             hasBall = hasBall,
             modifier = Modifier.fillMaxSize()
         )
