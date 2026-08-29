@@ -1,23 +1,23 @@
 package com.football.game.ui.screen
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,7 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,13 +48,13 @@ import com.football.game.model.Team
 import com.football.game.render.GameGLSurfaceView
 import com.football.game.sound.SoundManager
 import com.football.game.ui.component.GoalAnnouncementUI
+import com.football.game.ui.component.HudCircleButton
 import com.football.game.ui.component.TouchControls
 import kotlinx.coroutines.delay
 
 /**
- * 比赛屏幕：真实 OpenGL 3D 场景
- * 关节式球员模型 + 裁判（鸣哨/出牌）+ 铲球/犯规/任意球/点球 + 合成音效
- * 极简按键：单一大按钮三态（加速/射门/铲球）+ 传球/直塞/解围情境键 + 主动换人
+ * 比赛屏幕：真实 OpenGL 3D 场景（最佳球会风格 HUD）
+ * 顶部记分栏 + 倍速/暂停/换人圆键 + 底部雷达小地图 + 半透明圆形按键
  */
 @Composable
 fun MatchScreen(
@@ -68,6 +70,8 @@ fun MatchScreen(
     var currentHalf by remember { mutableIntStateOf(1) }
     var isPaused by remember { mutableStateOf(false) }
     var isFinished by remember { mutableStateOf(false) }
+    var simSpeed by remember { mutableIntStateOf(1) }
+    var radarFrame by remember { mutableIntStateOf(0) }
     var currentAnnouncement by remember { mutableStateOf<GoalAnnouncement?>(null) }
     var hasBall by remember { mutableStateOf(false) }
     var actionMode by remember { mutableStateOf(GameEngine.ActionMode.SPRINT) }
@@ -150,12 +154,12 @@ fun MatchScreen(
         }
     }
 
-    // 引擎实时模拟（~60fps）+ 推送渲染数据
+    // 引擎实时模拟（~60fps × 倍速）+ 推送渲染数据
     LaunchedEffect(Unit) {
         while (true) {
             delay(16L)
             if (!isPaused && !isFinished) {
-                gameEngine.update(0.016f)
+                repeat(simSpeed) { gameEngine.update(0.016f) }
                 glView?.updateGameData(
                     homePlayers = gameEngine.homePlayers,
                     awayPlayers = gameEngine.awayPlayers,
@@ -169,16 +173,17 @@ fun MatchScreen(
                 hasBall = gameEngine.ballOwner?.isPlayerControlled == true
                 actionMode = gameEngine.currentActionMode()
                 showClearance = gameEngine.canClear()
+                radarFrame++
             }
         }
     }
 
-    // 比赛时钟（50 倍加速：+5s 游戏时间 / 100ms）
+    // 比赛时钟（50 倍加速：+5s 游戏时间 / 100ms × 倍速）
     LaunchedEffect(isPaused, isFinished) {
         while (matchTime < 2700f) {
             delay(100L)
             if (!isPaused && !isFinished) {
-                matchTime += 5f
+                matchTime += 5f * simSpeed
                 if (matchTime >= 2700f && currentHalf == 1) {
                     currentHalf = 2
                     matchTime = 0f
@@ -202,46 +207,50 @@ fun MatchScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        // 顶部栏：记分板 + 倍速/暂停/换人
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Scoreboard(
+                homeTeamName = homeTeamName,
+                awayTeamName = awayTeamName,
+                homeScore = homeScore,
+                awayScore = awayScore,
+                matchTime = matchTime,
+                currentHalf = currentHalf,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            HudCircleButton(label = if (simSpeed > 1) "2x" else "⏩", size = 44.dp) {
+                simSpeed = if (simSpeed > 1) 1 else 2
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+            HudCircleButton(label = if (isPaused) "▶" else "⏸", size = 44.dp) {
+                isPaused = !isPaused
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+            HudCircleButton(label = "换人", size = 44.dp) {
+                isPaused = true
+                showSubDialog = true
+            }
+        }
+
         GoalAnnouncementUI(
             announcement = currentAnnouncement,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(16.dp)
+                .padding(top = 104.dp, start = 16.dp)
         )
-
-        Scoreboard(
-            homeTeamName = homeTeamName,
-            awayTeamName = awayTeamName,
-            homeScore = homeScore,
-            awayScore = awayScore,
-            matchTime = matchTime,
-            currentHalf = currentHalf,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(16.dp)
-        )
-
-        // 换人按钮（暂停比赛并打开换人面板）
-        Button(
-            onClick = {
-                isPaused = true
-                showSubDialog = true
-            },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 16.dp, end = 16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.55f)),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-        ) {
-            Text(text = "换人", color = Color.White, fontSize = 13.sp)
-        }
 
         // 犯规/牌/定位球横幅
         bannerText?.let { text ->
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 110.dp)
+                    .padding(top = 150.dp)
                     .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(10.dp))
                     .padding(horizontal = 18.dp, vertical = 10.dp)
             ) {
@@ -253,6 +262,16 @@ fun MatchScreen(
                 )
             }
         }
+
+        // 底部雷达小地图（最佳球会风格）
+        RadarMiniMap(
+            gameEngine = gameEngine,
+            frame = radarFrame,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+                .size(width = 180.dp, height = 120.dp)
+        )
 
         TouchControls(
             gameEngine = gameEngine,
@@ -272,6 +291,135 @@ fun MatchScreen(
                 }
             )
         }
+    }
+}
+
+/**
+ * 记分板（最佳球会风格）：队名 + 比分 + 累计时钟（上半场 0-45'，下半场 45-90'）
+ */
+@Composable
+fun Scoreboard(
+    homeTeamName: String,
+    awayTeamName: String,
+    homeScore: Int,
+    awayScore: Int,
+    matchTime: Float,
+    currentHalf: Int,
+    modifier: Modifier = Modifier
+) {
+    val total = (currentHalf - 1) * 2700 + matchTime
+    val mm = (total / 60).toInt()
+    val ss = (total % 60).toInt()
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(homeTeamName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(awayTeamName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("$homeScore", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp))
+            Text("-", color = Color.Gray, fontSize = 20.sp)
+            Text("$awayScore", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (currentHalf == 1) "上半场" else "下半场",
+                color = Color(0xFFBDBDBD),
+                fontSize = 12.sp,
+                modifier = Modifier.padding(end = 10.dp)
+            )
+            Text(
+                text = String.format("%02d:%02d", mm, ss),
+                color = Color(0xFFFFD54F),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/**
+ * 雷达小地图：全场球员/球/操控标记（半透明深底）
+ * frame 每帧递增驱动重绘，直接读取引擎实时数据
+ */
+@Composable
+fun RadarMiniMap(
+    gameEngine: GameEngine,
+    frame: Int,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+
+        // 场地底 + 边线 + 中线
+        drawRect(color = Color.Black.copy(alpha = 0.4f), size = size)
+        drawRect(
+            color = Color.White.copy(alpha = 0.45f),
+            topLeft = Offset.Zero,
+            size = size,
+            style = Stroke(width = 1.dp.toPx())
+        )
+        drawLine(
+            color = Color.White.copy(alpha = 0.45f),
+            start = Offset(w / 2f, 0f),
+            end = Offset(w / 2f, h),
+            strokeWidth = 1.dp.toPx()
+        )
+
+        // 坐标映射：x ∈ [-34, 34]（宽 68），z ∈ [-52.5, 52.5]（长 105）
+        fun mapX(x: Float) = (x / 68f + 0.5f) * w
+        fun mapY(z: Float) = (z / 105f + 0.5f) * h
+
+        // 主队（白）客队（红）
+        gameEngine.homePlayers.forEach { p ->
+            if (!p.sentOff) {
+                drawCircle(
+                    color = Color.White,
+                    radius = 3.dp.toPx(),
+                    center = Offset(mapX(p.position.x), mapY(p.position.z))
+                )
+            }
+        }
+        gameEngine.awayPlayers.forEach { p ->
+            if (!p.sentOff) {
+                drawCircle(
+                    color = Color(0xFFEF5350),
+                    radius = 3.dp.toPx(),
+                    center = Offset(mapX(p.position.x), mapY(p.position.z))
+                )
+            }
+        }
+
+        // 操控球员（黄）+ 球（亮黄）
+        gameEngine.activePlayer?.let { p ->
+            drawCircle(
+                color = Color(0xFFFFEB3B),
+                radius = 4.5f.dp.toPx(),
+                center = Offset(mapX(p.position.x), mapY(p.position.z))
+            )
+        }
+        drawCircle(
+            color = Color(0xFFFFD54F),
+            radius = 2.5f.dp.toPx(),
+            center = Offset(mapX(gameEngine.ballPosition.x), mapY(gameEngine.ballPosition.z))
+        )
     }
 }
 
@@ -411,43 +559,4 @@ private fun roleLabel(role: String): String = when (role) {
     "RW" -> "右边锋"
     "ST", "FW" -> "前锋"
     else -> role
-}
-
-@Composable
-fun Scoreboard(
-    homeTeamName: String,
-    awayTeamName: String,
-    homeScore: Int,
-    awayScore: Int,
-    matchTime: Float,
-    currentHalf: Int,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth(0.8f)
-            .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
-            .padding(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(homeTeamName, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Text(awayTeamName, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("$homeScore", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp))
-            Text("-", color = Color.Gray, fontSize = 24.sp, modifier = Modifier.padding(horizontal = 8.dp))
-            Text("$awayScore", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp))
-        }
-        val minutes = (matchTime / 60).toInt()
-        val halfText = if (currentHalf == 1) "上半场" else "下半场"
-        Text(text = "$halfText ${String.format("%02d:%02d", minutes, 0)}", color = Color.Yellow, fontSize = 14.sp)
-    }
 }
