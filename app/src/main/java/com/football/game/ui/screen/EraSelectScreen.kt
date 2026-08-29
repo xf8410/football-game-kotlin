@@ -40,8 +40,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.football.game.data.LeagueDatabase
 import com.football.game.data.LegendPlayers
+import com.football.game.data.StarLikeness
 import com.football.game.model.Player
+import com.football.game.ui.component.StarAvatarView
 
 /**
  * 时代选择屏幕 - 选择不同时代的传奇球星
@@ -166,13 +169,16 @@ fun EraSelectScreen(
 }
 
 /**
- * 传奇球星卡片
+ * 传奇球星卡片（带程序化球星头像）
  */
 @Composable
 fun LegendPlayerCard(
     player: Player,
     onClick: () -> Unit
 ) {
+    // 从联赛数据库取球队配色（桑托斯/博卡等不在库中时用默认色）
+    val team = LeagueDatabase.getTeam(player.teamId)
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -190,22 +196,15 @@ fun LegendPlayerCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // 球员头像（球衣号码）
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFFD700))
-                    .border(2.dp, Color.White, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "${player.number}",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Black
-                )
-            }
+            // 球星头像
+            StarAvatarView(
+                params = StarLikeness.paramsForPlayerName(player.name).copy(
+                    kitColor1 = team?.primaryColor ?: Color(0xFF2E7D32),
+                    kitColor2 = team?.secondaryColor ?: Color.White,
+                    backdropColor = Color(0xFF1B5E20)
+                ),
+                modifier = Modifier.size(44.dp)
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -227,7 +226,7 @@ fun LegendPlayerCard(
             )
 
             // 总评
-            val overall = (player.pace + player.shooting + player.passing + 
+            val overall = (player.pace + player.shooting + player.passing +
                     player.dribbling + player.defending + player.physical) / 6
             Text(
                 text = "OVR $overall",
@@ -247,6 +246,8 @@ fun PlayerDetailCard(
     player: Player,
     modifier: Modifier = Modifier
 ) {
+    val team = LeagueDatabase.getTeam(player.teamId)
+
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -259,26 +260,18 @@ fun PlayerDetailCard(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // 球员姓名和号码
+            // 球员头像和姓名
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(50.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFFFD700))
-                        .border(3.dp, Color.Black, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "${player.number}",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black
-                    )
-                }
+                StarAvatarView(
+                    params = StarLikeness.paramsForPlayerName(player.name).copy(
+                        kitColor1 = team?.primaryColor ?: Color(0xFF2E7D32),
+                        kitColor2 = team?.secondaryColor ?: Color.White
+                    ),
+                    modifier = Modifier.size(52.dp)
+                )
 
                 Spacer(modifier = Modifier.width(12.dp))
 
@@ -290,7 +283,7 @@ fun PlayerDetailCard(
                         color = Color.Black
                     )
                     Text(
-                        text = "${player.teamName} · ${player.role}",
+                        text = "${player.teamName} · ${player.role} · ${player.number}号",
                         fontSize = 14.sp,
                         color = Color.Gray
                     )
