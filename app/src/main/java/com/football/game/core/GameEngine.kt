@@ -467,9 +467,8 @@ class GameEngine(
         
         /**
          * 为一支球队生成 11 名球员（4-3-3）
+         * 下标 0 = 门将，下标 9 = 中锋（招牌球星位）
          */
-        fun createTeamPlayers(team: Match.() -> Unit = {}, side: GameState.TeamSide): List<Player> = createTeamPlayers(null, side)
-        
         fun createTeamPlayers(team: com.football.game.model.Team?, side: GameState.TeamSide): List<Player> {
             val sign = if (side == GameState.TeamSide.HOME) 1f else -1f
             return BASE_POSITIONS.mapIndexed { i, (x, z) ->
