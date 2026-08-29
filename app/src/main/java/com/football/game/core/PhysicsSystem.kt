@@ -146,16 +146,5 @@ class Ball(
     var owner: PlayerModel? = null
 )
 
-/**
- * 轴对齐包围盒
- */
-data class BoundingBox(
-    val min: Vector3,
-    val max: Vector3
-) {
-    fun intersects(other: BoundingBox): Boolean {
-        return min.x <= other.max.x && max.x >= other.min.x &&
-                min.y <= other.max.y && max.y >= other.min.y &&
-                min.z <= other.max.z && max.z >= other.min.z
-    }
-}
+// BoundingBox 统一由 PlayerModel.kt 提供（含 intersects/contains/overlap 完整实现），
+// 此处不再重复声明，避免 Redeclaration 编译错误。
