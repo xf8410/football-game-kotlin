@@ -30,14 +30,18 @@ jobs:
         path: ~/.android/debug.keystore
         key: android-debug-keystore-v1
 
-    - name: Setup Gradle
+    # 固定 Gradle 8.9（AGP 8.7 官方兼容版本；对齐 uma-juece-ramen 固定 Gradle 版本的做法，
+    # 不用 runner 自带的 Gradle 9.x——未测试组合，打包产物可能有差异）
+    - name: Setup Gradle (pinned 8.9)
       uses: gradle/actions/setup-gradle@v4
+      with:
+        gradle-version: 8.9
 
     - name: Build Debug APK
-      run: gradle assembleDebug
+      run: gradle assembleDebug --no-daemon
 
     - name: Build Release APK (signed with debug keystore)
-      run: gradle assembleRelease
+      run: gradle assembleRelease --no-daemon
 
     # 诊断：把两个 APK 的签名证书与包信息（minSdk/版本/权限）打印进构建日志，
     # 手机装不上时对着日志就能看出是签名、minSdk 还是清单问题
@@ -47,11 +51,11 @@ jobs:
         echo "===== DEBUG APK ====="
         ls -la app/build/outputs/apk/debug/
         ${BT}apksigner verify --print-certs --verbose app/build/outputs/apk/debug/app-debug.apk || echo "apksigner verify failed"
-        ${BT}aapt2 dump badging app/build/outputs/apk/debug/app-debug.apk | head -25 || true
+        ${BT}aapt2 dump badging app/build/outputs/apk/debug/app-debug.apk | head -8 || true
         echo "===== RELEASE APK ====="
         ls -la app/build/outputs/apk/release/
         ${BT}apksigner verify --print-certs --verbose app/build/outputs/apk/release/*.apk || echo "apksigner verify failed"
-        ${BT}aapt2 dump badging app/build/outputs/apk/release/*.apk | head -25 || true
+        ${BT}aapt2 dump badging app/build/outputs/apk/release/*.apk | head -8 || true
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
