@@ -6,15 +6,18 @@ plugins {
 
 android {
     namespace = "com.football.game"
-    // 对齐 uma-juece-ramen（同手机 ColorOS 16 上可正常安装的已知良好配置）
+    // 包名换成全新的：绕开安装器对 com.football.game 包名下
+    // 几十次失败安装尝试留下的任何记录（签名记录/失败状态缓存等）
+    applicationId = "com.footballgame.app"
+
+    // minSdk 对齐 uma-juece-ramen（可正常安装的已知良好配置）
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.football.game"
-        minSdk = 21
+        minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -22,8 +25,7 @@ android {
         }
     }
 
-    // 输出文件名带版本号：football-1.0.3-release.apk / football-1.0.3-debug.apk
-    // 手机上一眼认出装的是哪个包，避免新旧包混淆
+    // 输出文件名带版本号：football-1.0.4-release.apk / football-1.0.4-debug.apk
     applicationVariants.all {
         outputs.all {
             val variantOutput = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
