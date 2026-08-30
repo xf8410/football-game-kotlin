@@ -6,7 +6,6 @@ plugins {
 
 android {
     namespace = "com.football.game"
-    // compileSdk/targetSdk 从 35 降到 34：
     // 对齐 uma-juece-ramen（同手机 ColorOS 16 上可正常安装的已知良好配置）
     compileSdk = 34
 
@@ -14,11 +13,8 @@ android {
         applicationId = "com.football.game"
         minSdk = 21
         targetSdk = 34
-        // versionCode 递增（对齐 ramen 的发版习惯）：
-        // 之前多轮构建一直是 versionCode=1 且签名各不相同，
-        // 安装器对"同 versionCode 不同签名"的覆盖尝试会直接拒绝且不弹进度页
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -26,9 +22,18 @@ android {
         }
     }
 
+    // 输出文件名带版本号：football-1.0.3-release.apk / football-1.0.3-debug.apk
+    // 手机上一眼认出装的是哪个包，避免新旧包混淆
+    applicationVariants.all {
+        outputs.all {
+            val variantOutput = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            variantOutput.outputFileName = "football-${versionName}-${name}.apk"
+        }
+    }
+
     buildTypes {
         release {
-            // release 用 debug keystore 签名（CI 端 actions/cache 固定 keystore，签名跨构建稳定）
+            // release 用 debug keystore 签名；CI 端显式生成并缓存 keystore，签名跨构建稳定
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
