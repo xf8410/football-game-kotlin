@@ -1,27 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- 已裁剪到与 uma-juece-ramen（可正常安装）同构：
+         删除 icon/roundIcon（OPPO 安装器图标合成失败的白色方块就是它）、
+         dataExtractionRules/fullBackupContent（OPPO 安装器安装期会读取）、
+         tools:targetApi、ACCESS_NETWORK_STATE、activity 横屏锁定与单独主题 -->
     <application
         android:allowBackup="true"
-        android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="@xml/backup_rules"
-        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.FootballGame"
-        tools:targetApi="31">
+        android:theme="@style/Theme.FootballGame">
 
         <activity
             android:name=".MainActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
-            android:screenOrientation="landscape"
-            android:theme="@style/Theme.FootballGame">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
