@@ -29,8 +29,7 @@ jobs:
         path: ~/.android/debug.keystore
         key: android-debug-keystore-v1
 
-    # 显式保证 keystore 存在：此前 AGP 未在缓存路径生成 keystore，
-    # 导致每次构建签名都不同、缓存永远存不上；现在构建前用 keytool 补齐
+    # 显式保证 keystore 存在（构建前生成/复用，签名从此稳定）
     - name: Ensure debug keystore exists
       run: |
         mkdir -p ~/.android
@@ -46,7 +45,7 @@ jobs:
           echo "debug keystore restored from cache"
         fi
 
-    # 固定 Gradle 8.9（AGP 8.7 官方兼容版本，不用 runner 自带 Gradle 9.x）
+    # 固定 Gradle 8.9（AGP 8.7 官方兼容版本，与可正常安装的 uma-juece-ramen 同思路）
     - name: Setup Gradle (pinned 8.9)
       uses: gradle/actions/setup-gradle@v4
       with:
@@ -58,7 +57,7 @@ jobs:
     - name: Build Release APK (signed with debug keystore)
       run: gradle assembleRelease --no-daemon
 
-    # 诊断：签名证书 + 包信息 + 启动入口(launchable-activity) + 图标，全部打进构建日志
+    # 诊断：签名证书 + 包信息 + 启动入口 + 图标，全部打进构建日志
     - name: Verify APK signature & badging
       run: |
         BT=$(ls -d ${ANDROID_HOME}/build-tools/*/ | sort | tail -1)
@@ -85,7 +84,7 @@ jobs:
         TAG=latest-apk
         gh release delete $TAG --yes --cleanup-tag || true
         gh release create $TAG \
-          --title "足球游戏 安装包 v1.0.3 (build ${{ github.run_number }})" \
-          --notes "下载 football-1.0.3-release.apk 直接安装（无需解压）。已签名、含崩溃报告。" \
-          app/build/outputs/apk/release/football-1.0.3-release.apk \
-          app/build/outputs/apk/debug/football-1.0.3-debug.apk
+          --title "足球游戏 安装包 v1.0.4 (build ${{ github.run_number }})" \
+          --notes "全新包名版本：下载 football-1.0.4-release.apk 直接安装（无需解压）。已签名、含崩溃报告。" \
+          app/build/outputs/apk/release/football-1.0.4-release.apk \
+          app/build/outputs/apk/debug/football-1.0.4-debug.apk
