@@ -75,7 +75,7 @@ class GameEngine(
     var onGoal: ((GameState.TeamSide) -> Unit)? = null
 
     /** 音效事件："whistle" / "whistle_short" / "kick" / "tackle" */
-    var onSound: ((String) -> Unit)?? = null
+    var onSound: ((String) -> Unit)? = null
 
     /** 界面横幅（犯规/牌/定位球提示） */
     var onBanner: ((String) -> Unit)? = null
