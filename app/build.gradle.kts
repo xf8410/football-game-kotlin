@@ -17,8 +17,8 @@ android {
         // versionCode 递增（对齐 ramen 的发版习惯）：
         // 之前多轮构建一直是 versionCode=1 且签名各不相同，
         // 安装器对"同 versionCode 不同签名"的覆盖尝试会直接拒绝且不弹进度页
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
