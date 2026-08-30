@@ -57,7 +57,7 @@ import kotlin.math.abs
 /**
  * 比赛屏幕：真实 OpenGL 3D 场景（最佳球会 × 实况足球 风格 HUD）
  * 顶部记分栏 + 跳过/暂停/换人圆键 + 底部雷达小地图 + 半透明圆形情境按键
- * ⏩ 跳过：净胜球 ≥ 3 时才可跳过剩余比赛（3:0 可跳、3:1 不可跳）；加速模式属于未来的经理人模式
+ * 招牌球星按角色卡落在对应位置槽（同一球星不同球队不同职责，如阿什拉夫在大巴黎踢边锋）
  */
 @Composable
 fun MatchScreen(
@@ -92,14 +92,18 @@ fun MatchScreen(
         )
     }
 
-    // 十一名球员（4-3-3，下标 9 为中锋/招牌球星位）+ 各 6 名替补（含门将）
+    // 招牌球星槽位（角色卡解析：默认中锋；阿什拉夫在大巴黎 = 边锋槽 10）
+    val homeStarSlot = remember(match) { StarLikeness.starSlotForTeam(match.homeTeam) }
+    val awayStarSlot = remember(match) { StarLikeness.starSlotForTeam(match.awayTeam) }
+
+    // 十一名球员（4-3-3）+ 各 6 名替补（含门将）
     val gameEngine = remember(match) {
         GameEngine(
             match = match,
             homePlayers = GameEngine.createTeamPlayers(match.homeTeam, GameState.TeamSide.HOME),
             awayPlayers = GameEngine.createTeamPlayers(match.awayTeam, GameState.TeamSide.AWAY)
         ).apply {
-            activePlayer = homePlayers.getOrNull(9)
+            activePlayer = homePlayers.getOrNull(homeStarSlot)
             activePlayer?.isActive = true
             activePlayer?.isPlayerControlled = true
         }
@@ -311,10 +315,12 @@ fun MatchScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 比赛暂停面板（比赛计划：统计 + 阵容 + 继续/换人/重新挑战/放弃）
+        // 比赛暂停面板（比赛计划：角色卡 + 统计 + 阵容 + 继续/换人/重新挑战/放弃）
         if (isPaused && !showSubDialog && !isFinished) {
             PauseMenuDialog(
                 gameEngine = gameEngine,
+                homeTeam = match.homeTeam,
+                starSlot = homeStarSlot,
                 onResume = { isPaused = false },
                 onOpenSubs = { showSubDialog = true },
                 onRestart = {
@@ -335,10 +341,10 @@ fun MatchScreen(
                         p.animState = Player.AnimState.IDLE
                     }
                     gameEngine.kickoffReset()
-                    gameEngine.homePlayers.getOrNull(9)?.let { striker ->
-                        striker.isActive = true
-                        striker.isPlayerControlled = true
-                        gameEngine.activePlayer = striker
+                    gameEngine.homePlayers.getOrNull(homeStarSlot)?.let { star ->
+                        star.isActive = true
+                        star.isPlayerControlled = true
+                        gameEngine.activePlayer = star
                     }
                     bannerText = null
                 },
@@ -486,11 +492,13 @@ fun RadarMiniMap(
 }
 
 /**
- * 比赛暂停面板（最佳球会"比赛计划"式）：统计数据 + 首发阵容 + 继续/换人/重新挑战/放弃
+ * 比赛暂停面板（最佳球会"比赛计划"式）：角色卡 + 统计数据 + 首发阵容 + 继续/换人/重新挑战/放弃
  */
 @Composable
 private fun PauseMenuDialog(
     gameEngine: GameEngine,
+    homeTeam: Team,
+    starSlot: Int,
     onResume: () -> Unit,
     onOpenSubs: () -> Unit,
     onRestart: () -> Unit,
@@ -513,6 +521,29 @@ private fun PauseMenuDialog(
         },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                // ===== 招牌球星角色卡（同一球星不同球队不同职责） =====
+                StarLikeness.roleCardForTeam(homeTeam)?.let { (starName, card) ->
+                    val roleHere = card.byTeam[homeTeam.id] ?: card.defaultRole
+                    Text(
+                        text = "角色卡 · $starName（${gameEngine.homePlayers.getOrNull(starSlot)?.number ?: "-"}号）",
+                        color = Color(0xFFFFD54F),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "本场位置：${roleLabel(roleHere)}　　可踢：${card.roles.joinToString(" / ") { roleLabel(it) }}",
+                        color = Color.White,
+                        fontSize = 13.sp
+                    )
+                    Text(
+                        text = "职责：${card.duty}",
+                        color = Color.White,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
                 Text(
                     text = "统计数据",
                     color = Color(0xFFFFD54F),
@@ -564,15 +595,18 @@ private fun PauseMenuDialog(
                 Row {
                     FormationMiniPitch(
                         gameEngine = gameEngine,
+                        starSlot = starSlot,
                         modifier = Modifier.size(width = 110.dp, height = 160.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
-                        gameEngine.homePlayers.forEach { p ->
+                        gameEngine.homePlayers.forEachIndexed { index, p ->
                             Text(
-                                text = "${p.number}号 ${roleLabel(p.role)}",
-                                color = Color.White,
-                                fontSize = 11.sp
+                                text = "${p.number}号 ${roleLabel(p.role)}" +
+                                    if (index == starSlot) "  ⭐招牌球星" else "",
+                                color = if (index == starSlot) Color(0xFFFFD54F) else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = if (index == starSlot) FontWeight.Bold else FontWeight.Normal
                             )
                         }
                     }
@@ -603,11 +637,12 @@ private fun PauseMenuDialog(
 }
 
 /**
- * 首发阵容迷你球场（4-3-3 站位点位，主队进攻方向朝上）
+ * 首发阵容迷你球场（4-3-3 站位点位，主队进攻方向朝上，招牌球星为金色点）
  */
 @Composable
 private fun FormationMiniPitch(
     gameEngine: GameEngine,
+    starSlot: Int,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
@@ -627,12 +662,16 @@ private fun FormationMiniPitch(
             strokeWidth = 1.dp.toPx()
         )
         // 主队站位：z 越大越靠近对方球门 → 画在上方
-        gameEngine.homePlayers.forEach { p ->
+        gameEngine.homePlayers.forEachIndexed { index, p ->
             val cx = (p.homePosition.x / 68f + 0.5f) * w
             val cy = (0.5f - p.homePosition.z / 105f) * h
             drawCircle(
-                color = if (p.isGoalkeeper) Color(0xFFFFD54F) else Color.White,
-                radius = 3.5.dp.toPx(),
+                color = when {
+                    p.isGoalkeeper -> Color(0xFFFFD54F)
+                    index == starSlot -> Color(0xFFFFD54F)
+                    else -> Color.White
+                },
+                radius = if (index == starSlot && !p.isGoalkeeper) 4.5f.dp.toPx() else 3.5f.dp.toPx(),
                 center = Offset(cx, cy)
             )
         }
