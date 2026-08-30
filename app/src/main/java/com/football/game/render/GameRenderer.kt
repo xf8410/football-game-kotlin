@@ -9,6 +9,7 @@ import com.football.game.core.TackleRules
 import com.football.game.core.Vector3
 import com.football.game.model.Player
 import com.football.game.ui.component.HairStyle3D
+import com.football.game.ui.component.KitPattern
 import com.football.game.ui.component.PlayerLook
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -21,6 +22,7 @@ import kotlin.math.sin
 /**
  * 游戏渲染器
  * OpenGL ES 2.0：真实关节式球员模型（头/发型/躯干/手臂/腿/球袜/球鞋），
+ * 队服系统（竖条纹/横条纹/拼色/斜杠 + 独立球裤球袜配色），
  * 裁判模型（吹哨 + 红黄牌），滑铲/倒地姿态，条纹草皮 + 白线球场 + 球门
  */
 class GameRenderer : GLSurfaceView.Renderer {
@@ -120,7 +122,6 @@ class GameRenderer : GLSurfaceView.Renderer {
     override fun onDrawFrame(gl: GL10?) {
         if (!ready) return
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-
         GLES20.glUseProgram(program.id)
         GLES20.glUniform3f(program.uLight, 0.4f, -0.85f, -0.35f)
 
@@ -130,7 +131,6 @@ class GameRenderer : GLSurfaceView.Renderer {
         camPosX = lerp(camPosX, camTargetX * 0.85f, 0.08f)
         camPosY = lerp(camPosY, 36f, 0.08f)
         camPosZ = lerp(camPosZ, camTargetZ - 30f, 0.08f)
-
         Matrix.setLookAtM(
             viewMatrix, 0,
             camPosX, camPosY, camPosZ,
@@ -143,6 +143,7 @@ class GameRenderer : GLSurfaceView.Renderer {
         drawAllPlayers()
         refereeState?.let { drawReferee(it) }
         drawBall()
+
         frameTime += 0.016f
     }
 
@@ -180,17 +181,20 @@ class GameRenderer : GLSurfaceView.Renderer {
         for (sign in floatArrayOf(-1f, 1f)) {
             val goalZ = halfL * sign
             val dir = -sign
+
             val boxW = 40.32f
             val boxD = 16.5f
             drawShapeAt(quad, 0f, 0.03f, goalZ + dir * boxD, boxW + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
             drawShapeAt(quad, -boxW / 2, 0.03f, goalZ + dir * boxD / 2, lw, 1f, boxD, 0f, 0.95f, 0.95f, 0.95f)
             drawShapeAt(quad, boxW / 2, 0.03f, goalZ + dir * boxD / 2, lw, 1f, boxD, 0f, 0.95f, 0.95f, 0.95f)
+
             val gW = 18.32f
             val gD = 5.5f
             drawShapeAt(quad, 0f, 0.03f, goalZ + dir * gD, gW + lw, 1f, lw, 0f, 0.95f, 0.95f, 0.95f)
             drawShapeAt(quad, -gW / 2, 0.03f, goalZ + dir * gD / 2, lw, 1f, gD, 0f, 0.95f, 0.95f, 0.95f)
             drawShapeAt(quad, gW / 2, 0.03f, goalZ + dir * gD / 2, lw, 1f, gD, 0f, 0.95f, 0.95f, 0.95f)
             drawShapeAt(quad, 0f, 0.04f, goalZ + dir * 11f, 0.35f, 1f, 0.35f, 0f, 0.95f, 0.95f, 0.95f)
+
             val postH = 2.44f
             val goalHalf = GameState.GOAL_WIDTH / 2
             drawShapeAt(cube, -goalHalf, postH / 2, goalZ, 0.12f, postH, 0.12f, 0f, 0.95f, 0.95f, 0.95f)
@@ -203,7 +207,7 @@ class GameRenderer : GLSurfaceView.Renderer {
 
     private fun drawAllPlayers() {
         for ((index, player) in homePlayers.withIndex()) {
-            if (player.sentOff) continue   // 红牌罚下不再上场
+            if (player.sentOff) continue // 红牌罚下不再上场
             drawPlayer(
                 player = player,
                 look = homeLooks.getOrNull(index) ?: defaultLook(true),
@@ -224,7 +228,7 @@ class GameRenderer : GLSurfaceView.Renderer {
 
     /**
      * 关节式球员模型：
-     * 阴影 → 双腿(摆动) → 球袜 → 球鞋 → 球裤 → 躯干 → 球袖 → 双臂(摆动) → 头 → 发型 → 选中标记
+     * 阴影 → 双腿(摆动) → 球袜 → 球鞋 → 球裤 → 躯干(队服花纹) → 球袖 → 双臂(摆动) → 头 → 发型 → 选中标记
      * 特殊姿态：滑铲（TACKLE，身体后倒 + 前腿伸出）、被铲倒地（FALL，平躺）
      */
     private fun drawPlayer(player: Player, look: PlayerLook, index: Int, isActive: Boolean) {
@@ -238,9 +242,10 @@ class GameRenderer : GLSurfaceView.Renderer {
 
         val sliding = player.animState == Player.AnimState.TACKLE && player.slideTimer > 0f
         val falling = player.animState == Player.AnimState.FALL && player.fallTimer > 0f
+
         val lean = when {
-            falling -> -86f   // 平躺
-            sliding -> -60f   // 后仰滑行
+            falling -> -86f // 平躺
+            sliding -> -60f // 后仰滑行
             else -> 0f
         }
 
@@ -252,6 +257,9 @@ class GameRenderer : GLSurfaceView.Renderer {
 
         val kit1 = rgb(look.kitColor1)
         val kit2 = rgb(look.kitColor2)
+        val shorts = rgb(look.shortsColor)
+        val socks = rgb(look.socksColor)
+        val sleeveC = if (look.pattern == KitPattern.SOLID) kit2 else kit1
         val skin = rgb(look.skinColor)
         val hairC = rgb(look.hairColor)
         val shoe = floatArrayOf(0.10f, 0.10f, 0.12f)
@@ -274,20 +282,25 @@ class GameRenderer : GLSurfaceView.Renderer {
         // 双腿（肤色）
         drawBody(cube, pos.x, pos.z, rotY, lean, -0.11f, 0.80f, 0f, legFront, -0.30f, 0.15f, 0.60f, 0.17f, skin[0], skin[1], skin[2])
         drawBody(cube, pos.x, pos.z, rotY, lean, 0.11f, 0.80f, 0f, legBack, -0.30f, 0.15f, 0.60f, 0.17f, skin[0], skin[1], skin[2])
-        // 球袜
-        drawBody(cube, pos.x, pos.z, rotY, lean, -0.11f, 0.38f, 0f, legFront, 0f, 0.16f, 0.18f, 0.18f, kit2[0], kit2[1], kit2[2])
-        drawBody(cube, pos.x, pos.z, rotY, lean, 0.11f, 0.38f, 0f, legBack, 0f, 0.16f, 0.18f, 0.18f, kit2[0], kit2[1], kit2[2])
+
+        // 球袜（队服独立配色）
+        drawBody(cube, pos.x, pos.z, rotY, lean, -0.11f, 0.38f, 0f, legFront, 0f, 0.16f, 0.18f, 0.18f, socks[0], socks[1], socks[2])
+        drawBody(cube, pos.x, pos.z, rotY, lean, 0.11f, 0.38f, 0f, legBack, 0f, 0.16f, 0.18f, 0.18f, socks[0], socks[1], socks[2])
+
         // 球鞋
         drawBody(cube, pos.x, pos.z, rotY, lean, -0.11f, 0.18f, 0.02f, legFront, 0f, 0.15f, 0.09f, 0.24f, shoe[0], shoe[1], shoe[2])
         drawBody(cube, pos.x, pos.z, rotY, lean, 0.11f, 0.18f, 0.02f, legBack, 0f, 0.15f, 0.09f, 0.24f, shoe[0], shoe[1], shoe[2])
 
-        // 球裤
-        drawBody(cube, pos.x, pos.z, rotY, lean, 0f, 0.90f, 0f, 0f, 0f, 0.34f, 0.22f, 0.24f, kit2[0], kit2[1], kit2[2])
-        // 躯干（球衣）
-        drawBody(cube, pos.x, pos.z, rotY, lean, 0f, 1.30f, 0f, 0f, 0f, 0.44f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
-        // 球袖
-        drawBody(cube, pos.x, pos.z, rotY, lean, -0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, kit1[0], kit1[1], kit1[2])
-        drawBody(cube, pos.x, pos.z, rotY, lean, 0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, kit1[0], kit1[1], kit1[2])
+        // 球裤（队服独立配色）
+        drawBody(cube, pos.x, pos.z, rotY, lean, 0f, 0.90f, 0f, 0f, 0f, 0.34f, 0.22f, 0.24f, shorts[0], shorts[1], shorts[2])
+
+        // 躯干（球衣，按队服花纹绘制）
+        drawTorso(pos.x, pos.z, rotY, lean, look.pattern, kit1, kit2)
+
+        // 球袖（纯色队服用副色袖，花纹队服用主色袖）
+        drawBody(cube, pos.x, pos.z, rotY, lean, -0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, sleeveC[0], sleeveC[1], sleeveC[2])
+        drawBody(cube, pos.x, pos.z, rotY, lean, 0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, sleeveC[0], sleeveC[1], sleeveC[2])
+
         // 双臂（肤色，反向摆动；倒地时张开）
         val armL = when {
             falling -> -35f
@@ -312,6 +325,49 @@ class GameRenderer : GLSurfaceView.Renderer {
         if (isActive) {
             val bob = sin(frameTime * 4f) * 0.05f
             drawShapeAt(markerRing, pos.x, 2.15f + bob, pos.z, 1f, 1f, 1f, 0f, 1f, 0.84f, 0.0f, 0.95f)
+        }
+    }
+
+    /**
+     * 躯干球衣：支持 5 种队服花纹
+     * SOLID=纯色 / STRIPES=竖条纹 / HOOPS=横条纹 / HALF=左右拼色 / SASH=斜杠
+     */
+    private fun drawTorso(
+        px: Float, pz: Float, rotY: Float, lean: Float,
+        pattern: KitPattern, kit1: FloatArray, kit2: FloatArray
+    ) {
+        when (pattern) {
+            KitPattern.STRIPES -> {
+                // 5 条竖条纹（轻微加宽避免缝隙）
+                val w = 0.44f / 5f
+                for (i in 0 until 5) {
+                    val ox = -0.22f + w * (i + 0.5f)
+                    val c = if (i % 2 == 0) kit1 else kit2
+                    drawBody(cube, px, pz, rotY, lean, ox, 1.30f, 0f, 0f, 0f, w * 1.18f, 0.60f, 0.26f, c[0], c[1], c[2])
+                }
+            }
+            KitPattern.HOOPS -> {
+                // 4 条横条纹
+                val bh = 0.60f / 4f
+                for (i in 0 until 4) {
+                    val oy = 1.00f + bh * (i + 0.5f)
+                    val c = if (i % 2 == 0) kit1 else kit2
+                    drawBody(cube, px, pz, rotY, lean, 0f, oy, 0f, 0f, 0f, 0.44f, bh * 1.18f, 0.26f, c[0], c[1], c[2])
+                }
+            }
+            KitPattern.HALF -> {
+                drawBody(cube, px, pz, rotY, lean, -0.11f, 1.30f, 0f, 0f, 0f, 0.22f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
+                drawBody(cube, px, pz, rotY, lean, 0.11f, 1.30f, 0f, 0f, 0f, 0.22f, 0.60f, 0.26f, kit2[0], kit2[1], kit2[2])
+            }
+            KitPattern.SASH -> {
+                // 底色 + 阶梯状斜杠
+                drawBody(cube, px, pz, rotY, lean, 0f, 1.30f, 0f, 0f, 0f, 0.44f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
+                drawBody(cube, px, pz, rotY, lean, -0.14f, 1.44f, 0f, 0f, 0f, 0.15f, 0.16f, 0.27f, kit2[0], kit2[1], kit2[2])
+                drawBody(cube, px, pz, rotY, lean, 0f, 1.30f, 0f, 0f, 0f, 0.15f, 0.16f, 0.27f, kit2[0], kit2[1], kit2[2])
+                drawBody(cube, px, pz, rotY, lean, 0.14f, 1.16f, 0f, 0f, 0f, 0.15f, 0.16f, 0.27f, kit2[0], kit2[1], kit2[2])
+            }
+            KitPattern.SOLID ->
+                drawBody(cube, px, pz, rotY, lean, 0f, 1.30f, 0f, 0f, 0f, 0.44f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
         }
     }
 
@@ -421,6 +477,7 @@ class GameRenderer : GLSurfaceView.Renderer {
             0.11f, 0.11f, 0.11f, 0f,
             0.96f, 0.96f, 0.96f
         )
+
         val shadowSize = 0.28f + ballHeight * 0.05f
         drawShapeAt(
             quad,
@@ -456,11 +513,10 @@ class GameRenderer : GLSurfaceView.Renderer {
      */
     private fun drawBody(
         shape: GLShape,
-        px: Float, pz: Float, rotY: Float,
-        leanX: Float,
+        px: Float, pz: Float,
+        rotY: Float, leanX: Float,
         ox: Float, oy: Float, oz: Float,
-        rotX: Float,
-        pivotDrop: Float,
+        rotX: Float, pivotDrop: Float,
         sx: Float, sy: Float, sz: Float,
         r: Float, g: Float, b: Float,
         alpha: Float = 1f
@@ -597,6 +653,7 @@ class GLShape(vertexData: FloatArray) {
     ) {
         if (program.id == 0 || vertexCount == 0) return
         Matrix.multiplyMM(mvpScratch, 0, vpMatrix, 0, modelMatrix, 0)
+
         GLES20.glUniformMatrix4fv(program.uMVP, 1, false, mvpScratch, 0)
         GLES20.glUniformMatrix4fv(program.uModel, 1, false, modelMatrix, 0)
         GLES20.glUniform3f(program.uColor, r, g, b)
