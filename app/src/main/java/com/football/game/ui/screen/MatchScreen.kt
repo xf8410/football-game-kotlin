@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,10 +52,12 @@ import com.football.game.ui.component.GoalAnnouncementUI
 import com.football.game.ui.component.HudCircleButton
 import com.football.game.ui.component.TouchControls
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 /**
- * 比赛屏幕：真实 OpenGL 3D 场景（最佳球会风格 HUD）
- * 顶部记分栏 + 倍速/暂停/换人圆键 + 底部雷达小地图 + 半透明圆形按键
+ * 比赛屏幕：真实 OpenGL 3D 场景（最佳球会 × 实况足球 风格 HUD）
+ * 顶部记分栏 + 跳过/暂停/换人圆键 + 底部雷达小地图 + 半透明圆形情境按键
+ * ⏩ 跳过：净胜球 ≥ 3 时才可跳过剩余比赛（3:0 可跳、3:1 不可跳）；加速模式属于未来的经理人模式
  */
 @Composable
 fun MatchScreen(
@@ -70,12 +73,14 @@ fun MatchScreen(
     var currentHalf by remember { mutableIntStateOf(1) }
     var isPaused by remember { mutableStateOf(false) }
     var isFinished by remember { mutableStateOf(false) }
-    var simSpeed by remember { mutableIntStateOf(1) }
+    var skipping by remember { mutableStateOf(false) }
+    var skipAvailable by remember { mutableStateOf(false) }
     var radarFrame by remember { mutableIntStateOf(0) }
     var currentAnnouncement by remember { mutableStateOf<GoalAnnouncement?>(null) }
     var hasBall by remember { mutableStateOf(false) }
     var actionMode by remember { mutableStateOf(GameEngine.ActionMode.SPRINT) }
     var showClearance by remember { mutableStateOf(false) }
+    var defending by remember { mutableStateOf(false) }
     var showSubDialog by remember { mutableStateOf(false) }
     var bannerText by remember { mutableStateOf<String?>(null) }
     var glView by remember { mutableStateOf<GameGLSurfaceView?>(null) }
@@ -154,12 +159,26 @@ fun MatchScreen(
         }
     }
 
-    // 引擎实时模拟（~60fps × 倍速）+ 推送渲染数据
+    // 引擎实时模拟（~60fps）+ 推送渲染数据；跳过时每帧快进 48 步直到终场
     LaunchedEffect(Unit) {
         while (true) {
             delay(16L)
             if (!isPaused && !isFinished) {
-                repeat(simSpeed) { gameEngine.update(0.016f) }
+                if (skipping) {
+                    repeat(48) { gameEngine.update(0.016f) }
+                    matchTime += 5f * 48
+                    if (matchTime >= 2700f) {
+                        if (currentHalf == 1) {
+                            currentHalf = 2
+                            matchTime = 0f
+                        } else {
+                            isFinished = true
+                            skipping = false
+                        }
+                    }
+                } else {
+                    gameEngine.update(0.016f)
+                }
                 glView?.updateGameData(
                     homePlayers = gameEngine.homePlayers,
                     awayPlayers = gameEngine.awayPlayers,
@@ -173,17 +192,20 @@ fun MatchScreen(
                 hasBall = gameEngine.ballOwner?.isPlayerControlled == true
                 actionMode = gameEngine.currentActionMode()
                 showClearance = gameEngine.canClear()
+                val owner = gameEngine.ballOwner
+                defending = owner == null || owner.teamSide != gameEngine.playerSide
+                skipAvailable = abs(homeScore - awayScore) >= 3
                 radarFrame++
             }
         }
     }
 
-    // 比赛时钟（50 倍加速：+5s 游戏时间 / 100ms × 倍速）
+    // 比赛时钟（50 倍加速：+5s 游戏时间 / 100ms；跳过时由模拟循环接管）
     LaunchedEffect(isPaused, isFinished) {
         while (matchTime < 2700f) {
             delay(100L)
-            if (!isPaused && !isFinished) {
-                matchTime += 5f * simSpeed
+            if (!isPaused && !isFinished && !skipping) {
+                matchTime += 5f
                 if (matchTime >= 2700f && currentHalf == 1) {
                     currentHalf = 2
                     matchTime = 0f
@@ -207,7 +229,7 @@ fun MatchScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 顶部栏：记分板 + 倍速/暂停/换人
+        // 顶部栏：记分板 + 跳过/暂停/换人
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -224,17 +246,23 @@ fun MatchScreen(
                 modifier = Modifier.weight(1f)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            HudCircleButton(label = if (simSpeed > 1) "2x" else "⏩", size = 44.dp) {
-                simSpeed = if (simSpeed > 1) 1 else 2
+            // ⏩ 跳过：净胜 3 球后开放（3:0 可跳、3:1 不行）
+            HudCircleButton(
+                label = "⏩",
+                size = 44.dp,
+                enabled = skipAvailable && !isPaused && !isFinished
+            ) {
+                skipping = true
+                bannerText = "净胜3球，跳过剩余比赛…"
             }
             Spacer(modifier = Modifier.width(6.dp))
             HudCircleButton(label = if (isPaused) "▶" else "⏸", size = 44.dp) {
                 isPaused = !isPaused
+                if (isPaused) skipping = false
             }
             Spacer(modifier = Modifier.width(6.dp))
             HudCircleButton(label = "换人", size = 44.dp) {
                 isPaused = true
-                showSubDialog = true
             }
         }
 
@@ -278,17 +306,50 @@ fun MatchScreen(
             actionMode = actionMode,
             hasBall = hasBall,
             showClearance = showClearance,
+            defending = defending,
             modifier = Modifier.fillMaxSize()
         )
 
-        // 主动换人面板（打开时比赛暂停）
+        // 比赛暂停面板（比赛计划：统计 + 阵容 + 继续/换人/重新挑战/放弃）
+        if (isPaused && !showSubDialog && !isFinished) {
+            PauseMenuDialog(
+                gameEngine = gameEngine,
+                onResume = { isPaused = false },
+                onOpenSubs = { showSubDialog = true },
+                onRestart = {
+                    homeScore = 0
+                    awayScore = 0
+                    matchTime = 0f
+                    currentHalf = 1
+                    skipping = false
+                    isFinished = false
+                    (gameEngine.homePlayers + gameEngine.awayPlayers).forEach { p ->
+                        p.yellowCards = 0
+                        p.sentOff = false
+                        p.hasBall = false
+                        p.fallTimer = 0f
+                        p.slideTimer = 0f
+                        p.isActive = false
+                        p.isPlayerControlled = false
+                        p.animState = Player.AnimState.IDLE
+                    }
+                    gameEngine.kickoffReset()
+                    gameEngine.homePlayers.getOrNull(9)?.let { striker ->
+                        striker.isActive = true
+                        striker.isPlayerControlled = true
+                        gameEngine.activePlayer = striker
+                    }
+                    bannerText = null
+                },
+                onAbandon = onMatchEnd
+            )
+        }
+
+        // 主动换人面板（从暂停面板进入，关闭后回到暂停面板）
         if (showSubDialog) {
             SubstitutionDialog(
                 gameEngine = gameEngine,
-                onDismiss = {
-                    showSubDialog = false
-                    isPaused = false
-                }
+                onDismiss = { showSubDialog = false }
             )
         }
     }
@@ -424,6 +485,160 @@ fun RadarMiniMap(
 }
 
 /**
+ * 比赛暂停面板（最佳球会"比赛计划"式）：统计数据 + 首发阵容 + 继续/换人/重新挑战/放弃
+ */
+@Composable
+private fun PauseMenuDialog(
+    gameEngine: GameEngine,
+    onResume: () -> Unit,
+    onOpenSubs: () -> Unit,
+    onRestart: () -> Unit,
+    onAbandon: () -> Unit
+) {
+    val s = gameEngine.stats
+    val totalPoss = s.possessionHome + s.possessionAway
+    val homePct = if (totalPoss < 5f) 50 else (s.possessionHome / totalPoss * 100).toInt()
+
+    AlertDialog(
+        onDismissRequest = onResume,
+        containerColor = Color(0xFF1B5E20),
+        title = {
+            Text(
+                text = "比赛暂停 · 比赛计划",
+                color = Color.White,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    text = "统计数据",
+                    color = Color(0xFFFFD54F),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "控球率  $homePct% : ${100 - homePct}%",
+                    color = Color.White,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(homePct.toFloat())
+                            .fillMaxHeight()
+                            .background(Color.White)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight((100 - homePct).toFloat())
+                            .fillMaxHeight()
+                            .background(Color(0xFFEF5350))
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "射门  ${s.homeShots} : ${s.awayShots}      传球  ${s.homePasses} : ${s.awayPasses}",
+                    color = Color.White,
+                    fontSize = 14.sp
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "首发阵容（4-3-3）",
+                    color = Color(0xFFFFD54F),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row {
+                    FormationMiniPitch(
+                        gameEngine = gameEngine,
+                        modifier = Modifier.size(width = 110.dp, height = 160.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        gameEngine.homePlayers.forEach { p ->
+                            Text(
+                                text = "${p.number}号 ${roleLabel(p.role)}",
+                                color = Color.White,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(onClick = onOpenSubs) {
+                    Text(text = "换人", color = Color(0xFFFFD54F), fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = onResume) {
+                    Text(text = "继续", color = Color(0xFF80CBC4), fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onRestart) {
+                    Text(text = "重新挑战", color = Color.White)
+                }
+                TextButton(onClick = onAbandon) {
+                    Text(text = "放弃比赛", color = Color(0xFFEF9A9A))
+                }
+            }
+        }
+    )
+}
+
+/**
+ * 首发阵容迷你球场（4-3-3 站位点位，主队进攻方向朝上）
+ */
+@Composable
+private fun FormationMiniPitch(
+    gameEngine: GameEngine,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        drawRect(color = Color(0xFF2E7D32).copy(alpha = 0.9f), size = size)
+        drawRect(
+            color = Color.White.copy(alpha = 0.4f),
+            topLeft = Offset.Zero,
+            size = size,
+            style = Stroke(width = 1.dp.toPx())
+        )
+        drawLine(
+            color = Color.White.copy(alpha = 0.4f),
+            start = Offset(0f, h / 2f),
+            end = Offset(w, h / 2f),
+            strokeWidth = 1.dp.toPx()
+        )
+        // 主队站位：z 越大越靠近对方球门 → 画在上方
+        gameEngine.homePlayers.forEach { p ->
+            val cx = (p.homePosition.x / 68f + 0.5f) * w
+            val cy = (0.5f - p.homePosition.z / 105f) * h
+            drawCircle(
+                color = if (p.isGoalkeeper) Color(0xFFFFD54F) else Color.White,
+                radius = 3.5.dp.toPx(),
+                center = Offset(cx, cy)
+            )
+        }
+    }
+}
+
+/**
  * 主动换人面板：选一名场上球员（= 选替补要打的位置槽）+ 一名替补 → 确认换人
  * 替补顶替所选球员的位置槽上场；门将位只能换上门将替补；每队最多 5 个名额
  */
@@ -542,7 +757,7 @@ private fun SubstitutionDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(text = "返回比赛", color = Color.White)
+                Text(text = "返回", color = Color.White)
             }
         }
     )
