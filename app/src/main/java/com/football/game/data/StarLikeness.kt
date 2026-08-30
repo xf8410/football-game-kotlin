@@ -306,13 +306,15 @@ object StarLikeness {
         return KitSpec(team.primaryColor, team.secondaryColor, team.secondaryColor, team.primaryColor)
     }
 
-    /** 两队球衣主色是否"撞衫"（RGB 距离过近） */
+    /** 两队球衣主色是否"撞衫"（RGB 距离过近，0~441 量程） */
     private fun kitClash(a: KitSpec, b: KitSpec): Boolean {
-        val dr = a.shirt.red - b.shirt.red
-        val dg = a.shirt.green - b.shirt.green
-        val db = a.shirt.blue - b.shirt.blue
-        val dist = kotlin.math.sqrt(dr * dr + dg * dg + db * db)   // 0 ~ 1.73
-        return dist < 0.38f
+        val ca = a.shirt.toArgb()
+        val cb = b.shirt.toArgb()
+        val dr = ((ca shr 16) and 0xFF) - ((cb shr 16) and 0xFF)
+        val dg = ((ca shr 8) and 0xFF) - ((cb shr 8) and 0xFF)
+        val db = (ca and 0xFF) - (cb and 0xFF)
+        val dist = kotlin.math.sqrt((dr * dr + dg * dg + db * db).toFloat())
+        return dist < 66f
     }
 
     // ==================== 2D 头像查询 ====================
@@ -403,7 +405,7 @@ object StarLikeness {
     /**
      * 一场比赛的主客队外观（含撞衫处理 + 双方门将独立配色）：
      * 两队球衣主色过于接近时，客队自动改穿客场（副色衣身），仍撞则强制黑衫。
-     * 例：利物浦 vs 拜仁（红对红）→ 客队换白袖副色；皇马 vs 热刺（白对白）→ 客队换藏青。
+     * 例：利物浦 vs 拜仁（红对红）→ 客队换客场；皇马 vs 热刺（白对白）→ 客队换藏青。
      */
     fun looksForMatch(
         home: Team,
