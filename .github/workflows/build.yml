@@ -82,9 +82,10 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
       run: |
         TAG=latest-apk
+        VER=$(ls app/build/outputs/apk/release/ | grep -oP 'football-\K[0-9.]+(?=-release)' | head -1)
         gh release delete $TAG --yes --cleanup-tag || true
         gh release create $TAG \
-          --title "足球游戏 安装包 v1.0.4 (build ${{ github.run_number }})" \
-          --notes "全新包名版本：下载 football-1.0.4-release.apk 直接安装（无需解压）。已签名、含崩溃报告。" \
-          app/build/outputs/apk/release/football-1.0.4-release.apk \
-          app/build/outputs/apk/debug/football-1.0.4-debug.apk
+          --title "足球游戏 安装包 v$VER (build ${{ github.run_number }})" \
+          --notes "全新包名 + 精简 Manifest 版本：下载 football-$VER-release.apk 直接安装（无需解压）。已签名、含崩溃报告。若 release 包仍无法安装，请再试同页的 football-$VER-debug.apk。" \
+          app/build/outputs/apk/release/football-$VER-release.apk \
+          app/build/outputs/apk/debug/football-$VER-debug.apk
