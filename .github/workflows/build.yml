@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -22,13 +22,21 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    # 缓存 debug keystore：签名跨构建保持一致，
+    # 否则每次 CI 都生成新签名 → 新 APK 与手机上已装版本签名冲突，覆盖安装必失败
+    - name: Cache debug keystore (stable signing)
+      uses: actions/cache@v4
+      with:
+        path: ~/.android/debug.keystore
+        key: android-debug-keystore-v1
+
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
 
     - name: Build Debug APK
       run: gradle assembleDebug
 
-    - name: Build Release APK
+    - name: Build Release APK (signed with debug keystore)
       run: gradle assembleRelease
 
     - name: Upload Debug APK
