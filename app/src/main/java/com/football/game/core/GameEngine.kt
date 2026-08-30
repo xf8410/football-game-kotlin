@@ -497,48 +497,6 @@ class GameEngine(
             .minByOrNull { it.position.distanceTo(p.position) }
     }
 
-    private fun tryPossession(p: Player) {
-        if (pickupCooldown > 0f || ballHeight > 1.4f) return
-        val dx = p.position.x - ballPosition.x
-        val dz = p.position.z - ballPosition.z
-        if (dx * dx + dz * dz < 1.2f * 1.2f) {
-            assignBallOwner(p)
-        }
-    }
-
-    /** 持球权转移（同步 hasBall / 控球保护时间 / 接传球射门窗口 / 控制权自动切换） */
-    private fun assignBallOwner(p: Player) {
-        if (ballOwner == p) return
-        // 接到队友传球：短暂给出"射门"按钮（接球即射机会）
-        val passer = lastPasser
-        if (passer != null && p !== passer && passTravelTimer < 4f &&
-            p.teamSide == passer.teamSide && passer.teamSide == playerSide && !p.isGoalkeeper
-        ) {
-            receiveWindow = 1.2f
-        }
-        lastPasser = null
-        // 我方拿球 → 控制权自动交给拿球者（门将除外）
-        if (p.teamSide == playerSide && !p.isGoalkeeper && p !== activePlayer) {
-            switchControlTo(p)
-        }
-        ballOwner?.hasBall = false
-        ballOwner = p
-        p.hasBall = true
-        lastTouch = p
-        ballControlTime = 0f
-        ballHeight = 0.1f
-        ballHeightVelocity = 0f
-    }
-
-    /** 控制权切到指定球员（自动换人共用） */
-    private fun switchControlTo(p: Player) {
-        activePlayer?.isActive = false
-        activePlayer?.isPlayerControlled = false
-        activePlayer = p
-        p.isActive = true
-        p.isPlayerControlled = true
-    }
-
     // ==================== 铲球系统 ====================
 
     /**
