@@ -105,9 +105,10 @@ fun MatchScreen(
         }
     }
 
-    // 球员外观（球衣配色 + 肤色/发型，招牌球星套用球队标志性特征）
-    val homeLooks = remember(match) { StarLikeness.lookForTeam(match.homeTeam, 11) }
-    val awayLooks = remember(match) { StarLikeness.lookForTeam(match.awayTeam, 11) }
+    // 球员外观（队服系统：经典配色/竖条纹/斜杠 + 独立球裤球袜 + 撞衫自动换客场 + 门将独立荧光色）
+    val (homeLooks, awayLooks) = remember(match) {
+        StarLikeness.looksForMatch(match.homeTeam, match.awayTeam, 11)
+    }
 
     // 进球处理
     fun handleGoal(scoringSide: GameState.TeamSide) {
