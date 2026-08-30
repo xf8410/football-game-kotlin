@@ -18,6 +18,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,25 +26,30 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.football.game.core.GameEngine
+import kotlinx.coroutines.delay
 import kotlin.math.sqrt
 
 /**
- * 触屏控制器（最佳球会风格：半透明圆形按键 + 情境出现）
+ * 触屏控制器（最佳球会 × 实况足球 风格：半透明圆形按键 + 情境出现）
  *
  * 左侧：虚拟摇杆（移动方向）
- * 右侧：大动作按钮 + 情境按键，按键随局势自动出现/切换：
- * - 大按钮三态：加速（按住）⇄ 射门（点按：进入射门范围或刚接住传球）⇄ 铲球（点按：对方持球且贴身）
+ * 右侧按键随局势自动出现/切换：
+ * - 大按钮三态：加速（按住）⇄ 射门（实况式蓄力：按住蓄力松手出脚）⇄ 铲球（点按：对方持球且贴身）
  * - 传球 / 直塞：己方持球时显示（两回事，各自独立按键）
  * - 解围：本方禁区附近己方持球时显示，大脚踢向前场
+ * - 呼叫压位：防守时显示，按住呼叫第二名队友上前逼抢
+ * - 切换：防守时显示，手动切到离球最近的队友
  */
 @Composable
 fun TouchControls(
@@ -51,6 +57,7 @@ fun TouchControls(
     actionMode: GameEngine.ActionMode,
     hasBall: Boolean,
     showClearance: Boolean,
+    defending: Boolean,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -69,7 +76,7 @@ fun TouchControls(
             }
         )
 
-        // 右侧：解围 + 大动作按钮 + 传球/直塞
+        // 右侧：解围 + 大动作按钮 + 传球/直塞 或 呼叫压位/切换
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -101,6 +108,19 @@ fun TouchControls(
                         onClick = { gameEngine.doThroughBall() }
                     )
                 }
+            } else if (defending) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HoldActionButton(
+                        text = "呼叫压位",
+                        color = Color(0xFF607D8B),
+                        onHold = { gameEngine.callPressing = it }
+                    )
+                    ActionButton(
+                        text = "切换",
+                        color = Color(0xFF9C27B0),
+                        onClick = { gameEngine.switchToNearest() }
+                    )
+                }
             }
         }
     }
@@ -108,7 +128,9 @@ fun TouchControls(
 
 /**
  * 大动作按钮：加速 ⇄ 射门 ⇄ 铲球
- * 半透明深色圆键 + 模式色描边；按下即触发：射门/铲球点按生效，加速按住生效、松手停止
+ * - 加速：按住生效，松手停止
+ * - 射门：实况式蓄力（按住蓄力 1.2s 蓄满，黄色进度弧显示，松手出脚；快点=半力推射）
+ * - 铲球：点按即出脚
  */
 @Composable
 private fun ContextActionButton(
@@ -123,6 +145,18 @@ private fun ContextActionButton(
         GameEngine.ActionMode.TACKLE -> "铲球" to Color(0xFF3F51B5)
     }
 
+    var chargeActive by remember { mutableStateOf(false) }
+    var chargeStart by remember { mutableStateOf(0L) }
+    var chargeLevel by remember { mutableStateOf(0f) }
+
+    // 蓄力进度动画（0 → 1，1.2 秒蓄满）
+    LaunchedEffect(chargeActive) {
+        while (chargeActive) {
+            chargeLevel = ((System.currentTimeMillis() - chargeStart) / 1200f).coerceIn(0f, 1f)
+            delay(30L)
+        }
+    }
+
     Box(
         modifier = Modifier
             .size(88.dp)
@@ -133,17 +167,44 @@ private fun ContextActionButton(
                 detectTapGestures(
                     onPress = {
                         when (currentMode) {
-                            GameEngine.ActionMode.SPRINT -> gameEngine.isSprinting = true
-                            GameEngine.ActionMode.SHOOT -> gameEngine.doShoot()
-                            GameEngine.ActionMode.TACKLE -> gameEngine.doTackle()
+                            GameEngine.ActionMode.SPRINT -> {
+                                gameEngine.isSprinting = true
+                                tryAwaitRelease()
+                                gameEngine.isSprinting = false
+                            }
+                            GameEngine.ActionMode.SHOOT -> {
+                                // 蓄力射门：按住蓄力，松手出脚
+                                chargeStart = System.currentTimeMillis()
+                                chargeActive = true
+                                tryAwaitRelease()
+                                chargeActive = false
+                                chargeLevel = 0f
+                                val heldMs = (System.currentTimeMillis() - chargeStart).coerceAtLeast(0L)
+                                val power = (0.5f + 0.5f * (heldMs / 1200f)).coerceIn(0.5f, 1f)
+                                gameEngine.doShoot(power)
+                            }
+                            GameEngine.ActionMode.TACKLE -> {
+                                gameEngine.doTackle()
+                                tryAwaitRelease()
+                            }
                         }
-                        tryAwaitRelease()
-                        gameEngine.isSprinting = false
                     }
                 )
             },
         contentAlignment = Alignment.Center
     ) {
+        // 蓄力弧（射门按住时显示）
+        if (chargeLevel > 0f) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                drawArc(
+                    color = Color(0xFFFFEB3B),
+                    startAngle = -90f,
+                    sweepAngle = 360f * chargeLevel,
+                    useCenter = false,
+                    style = Stroke(width = 5.dp.toPx())
+                )
+            }
+        }
         Text(
             text = label,
             color = color,
@@ -218,7 +279,7 @@ fun VirtualJoystick(
 }
 
 /**
- * 小型情境动作按钮（传球/直塞/解围）：半透明圆形
+ * 小型情境动作按钮（传球/直塞/解围/切换）：半透明圆形
  */
 @Composable
 fun ActionButton(
@@ -245,21 +306,59 @@ fun ActionButton(
 }
 
 /**
- * HUD 通用圆键（倍速/暂停/换人等）：半透明深色圆形 + 白字
+ * 按住生效的小按钮（呼叫压位）：按住 onHold(true)，松手 onHold(false)
+ */
+@Composable
+private fun HoldActionButton(
+    text: String,
+    color: Color,
+    onHold: (Boolean) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(66.dp)
+            .clip(CircleShape)
+            .background(color.copy(alpha = 0.55f))
+            .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        onHold(true)
+                        tryAwaitRelease()
+                        onHold(false)
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+    }
+}
+
+/**
+ * HUD 通用圆键（跳过/暂停/换人等）：半透明深色圆形 + 白字
+ * enabled=false 时半透明置灰且不可点
  */
 @Composable
 fun HudCircleButton(
     label: String,
     size: Dp = 44.dp,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .size(size)
+            .alpha(if (enabled) 1f else 0.35f)
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.5f))
             .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
