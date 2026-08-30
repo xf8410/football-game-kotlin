@@ -49,7 +49,6 @@ object CrashReporter {
                     appendLine("=== 足球游戏崩溃报告 ===")
                     appendLine("thread: ${thread.name}")
                     appendLine("time: ${System.currentTimeMillis()}")
-                    appendLine("version: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                     appendLine()
                     append(sw.toString())
                     val cause = throwable.cause
