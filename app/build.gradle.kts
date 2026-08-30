@@ -23,6 +23,12 @@ android {
 
     buildTypes {
         release {
+            // 修复"APK 安装直接失败"：CI 构建的 release 包原先没有签名，
+            // Android 会直接拒绝安装（安装界面闪一下就退出）。
+            // 这里让 release 也用 debug keystore 签名，产出的 app-release.apk 可直接安装。
+            // CI 端用 actions/cache 固定 ~/.android/debug.keystore，保证跨构建签名一致，
+            // 以后覆盖安装不会报"签名冲突"。
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
