@@ -114,6 +114,7 @@ class GameEngine(
     private var pendingSetPiece: SetPieceData? = null
     private var gkDiveTimer = 0f         // 点球时门将扑救
     private var gkDiveTargetX = 0f
+    private var sprintKnockTimer = 0f    // 爆趟计时（带球按住加速时周期性把球趟出去）
 
     // ===== 大按钮三态支持状态 =====
     private var lastPasser: Player? = null   // 最近一次传球出球者（判定"接到传球"）
@@ -829,6 +830,26 @@ class GameEngine(
             updateFreeBall(delta)
             return
         }
+
+        // ===== 爆趟：带球按住加速，每 0.45s 把球往前趟出一大步（自己追），风险与收益并存 =====
+        if (owner.isPlayerControlled && isSprinting) {
+            sprintKnockTimer += delta
+            if (sprintKnockTimer >= 0.45f) {
+                val dir = owner.facingDirection
+                ballVelocity = dir * (owner.velocity.length() * 1.4f + 2.5f)
+                ballHeightVelocity = 0.2f
+                ballOwner = null
+                owner.hasBall = false
+                lastTouch = owner
+                pickupCooldown = 0.12f
+                ballControlTime = 0f
+                sprintKnockTimer = 0f
+                return
+            }
+        } else {
+            sprintKnockTimer = 0f
+        }
+
         // 球粘在控球者前方
         val dir = owner.facingDirection
         val targetX = owner.position.x + dir.x * 0.55f
@@ -925,6 +946,7 @@ class GameEngine(
         pickupCooldown = 0.3f
         gkDiveTimer = 0f
         callPressing = false
+        sprintKnockTimer = 0f
         stats = MatchStats()
         for (p in homePlayers + awayPlayers) {
             p.position = p.homePosition
@@ -959,7 +981,7 @@ class GameEngine(
 
     /**
      * 右侧大按钮当前该显示的动作（UI 每帧读取，驱动按键文案与颜色）：
-     * - 己方持球：刚接队友传球 或 已进入射门范围 → 射门；否则 → 加速
+     * - 己方持球：刚接队友传球 或 已进入射门范围 → 射门；否则 → 加速（按住=带球爆趟）
      * - 对方持球：与持球者贴身 → 铲球；否则 → 加速
      * - 自由球 → 加速
      */
@@ -1261,6 +1283,7 @@ class GameEngine(
         private val BENCH_NUMBERS = listOf(12, 13, 14, 15, 16, 17)
 
         // 4-3-3 基础站位 (x, z)，主队进攻 +z，场地 105 x 68
+        // 下标：0=GK 1=LB 2/3=CB 4=RB 5/6/7=CM 8=LW 9=ST 10=RW（招牌球星按角色卡可落在任意外场槽）
         private val BASE_POSITIONS = listOf(
             Pair(0f, -44f),                                                   // GK
             Pair(-22f, -30f), Pair(-8f, -33f), Pair(8f, -33f), Pair(22f, -30f), // DF
@@ -1270,7 +1293,7 @@ class GameEngine(
 
         /**
          * 为一支球队生成 11 名球员（4-3-3）
-         * 下标 0 = 门将，下标 9 = 中锋（招牌球星位）
+         * 招牌球星所在槽位由角色卡决定（StarLikeness.starSlotForTeam），默认 9 = 中锋
          */
         fun createTeamPlayers(team: com.football.game.model.Team?, side: GameState.TeamSide): List<Player> {
             val sign = if (side == GameState.TeamSide.HOME) 1f else -1f
