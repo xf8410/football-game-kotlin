@@ -53,14 +53,22 @@ jobs:
         ${BT}apksigner verify --print-certs --verbose app/build/outputs/apk/release/*.apk || echo "apksigner verify failed"
         ${BT}aapt2 dump badging app/build/outputs/apk/release/*.apk | head -25 || true
 
-    - name: Upload Debug APK
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: debug-apk
-        path: app/build/outputs/apk/debug/*.apk
+        name: apk-files
+        path: app/build/outputs/apk/*/app-*.apk
 
-    - name: Upload Release APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: release-apk
-        path: app/build/outputs/apk/release/*.apk
+    # 发布到 GitHub Releases：手机直接下载 .apk 文件
+    # （Actions artifacts 下载下来是 zip 压缩包，套一层壳，是"点了安装瞬间弹回"的常见原因）
+    - name: Publish APKs to GitHub Release (direct .apk download)
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        TAG=latest-apk
+        gh release delete $TAG --yes --cleanup-tag || true
+        gh release create $TAG \
+          --title "足球游戏 安装包 (build ${{ github.run_number }})" \
+          --notes "直接下载 .apk 安装，无需解压。两个包都已签名可直接安装，内容相同，任选其一。" \
+          app/build/outputs/apk/debug/app-debug.apk \
+          app/build/outputs/apk/release/app-release.apk
