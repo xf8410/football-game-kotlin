@@ -142,7 +142,7 @@ private fun DrawScope.drawStarAvatar(params: StarAvatarParams, number: Int?) {
     val kitPath = Path().apply {
         moveTo(X(13f), Y(102f))
         cubicTo(X(16f), Y(74f), X(32f), Y(64f), X(50f), Y(64f))
-        cubicTo(X(68f), Y(74f), X(84f), Y(74f), X(87f), Y(102f))
+        cubicTo(X(68f), Y(64f), X(84f), Y(74f), X(87f), Y(102f))
         close()
     }
     drawPath(kitPath, params.kitColor1)
