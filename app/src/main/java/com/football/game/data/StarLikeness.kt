@@ -6,6 +6,7 @@ import com.football.game.model.Team
 import com.football.game.ui.component.AvatarFacialHair
 import com.football.game.ui.component.AvatarHairStyle
 import com.football.game.ui.component.HairStyle3D
+import com.football.game.ui.component.KitPattern
 import com.football.game.ui.component.PlayerLook
 import com.football.game.ui.component.StarAvatarParams
 
@@ -14,6 +15,9 @@ import com.football.game.ui.component.StarAvatarParams
  * 用标志性外貌特征（发型/胡子/肤色）让球员"像"真人球星：
  * - 2D 头像：LeagueScreen / EraSelectScreen 等界面
  * - 3D 模型：渲染器通过 PlayerLook 上色
+ *
+ * 队服系统：每支球队有独立的 球衣主色/袖色/球裤/球袜/花纹（竖条纹、斜杠等），
+ * 同场比赛两队主色过于接近时自动换客场球衣，门将穿独立荧光色。
  *
  * 说明：全部为程序化卡通风格，不使用真实照片（肖像权），仅特征神似。
  */
@@ -258,6 +262,59 @@ object StarLikeness {
         "巴黎圣日耳曼" to "登贝莱"
     )
 
+    // ==================== 球队队服库 ====================
+
+    /**
+     * 队服规格：球衣主色 + 袖/花纹副色 + 球裤 + 球袜 + 花纹
+     */
+    data class KitSpec(
+        val shirt: Color,      // 球衣主色
+        val shirt2: Color,     // 袖子/条纹副色
+        val shorts: Color,     // 球裤
+        val socks: Color,      // 球袜
+        val pattern: KitPattern = KitPattern.SOLID
+    )
+
+    /** 各队经典配色（按 team.id 匹配；纯色队服 shirt2 = 袖子颜色） */
+    private val teamKits: Map<String, KitSpec> = mapOf(
+        "real_madrid" to KitSpec(Color.White, Color.White, Color.White, Color(0xFFF2F2F2)),
+        "barcelona" to KitSpec(Color(0xFFA50044), Color(0xFF004D98), Color(0xFF004D98), Color(0xFF004D98), KitPattern.STRIPES),
+        "manchester_city" to KitSpec(Color(0xFF6CABDD), Color.White, Color.White, Color(0xFF6CABDD)),
+        "liverpool" to KitSpec(Color(0xFFC8102E), Color(0xFFC8102E), Color(0xFFC8102E), Color(0xFFC8102E)),
+        "bayern_munich" to KitSpec(Color(0xFFDC052D), Color.White, Color(0xFFDC052D), Color(0xFFDC052D)),
+        "arsenal" to KitSpec(Color(0xFFEF0107), Color.White, Color.White, Color(0xFFEF0107)),
+        "manchester_united" to KitSpec(Color(0xFFDA291C), Color(0xFFDA291C), Color.White, Color(0xFF1B1B1B)),
+        "chelsea" to KitSpec(Color(0xFF034694), Color.White, Color(0xFF034694), Color(0xFF034694)),
+        "tottenham_hotspur" to KitSpec(Color.White, Color(0xFF132257), Color.White, Color.White),
+        "atletico_madrid" to KitSpec(Color(0xFFCB3524), Color.White, Color(0xFF272E61), Color(0xFFCB3524), KitPattern.STRIPES),
+        "bayer_leverkusen" to KitSpec(Color(0xFFE32636), Color(0xFF1B1B1B), Color(0xFF1B1B1B), Color(0xFFE32636)),
+        "borussia_dortmund" to KitSpec(Color(0xFFFDE100), Color(0xFF1B1B1B), Color(0xFF1B1B1B), Color(0xFFFDE100)),
+        "inter_milan" to KitSpec(Color(0xFF0B1F8F), Color(0xFF1B1B1B), Color(0xFF1B1B1B), Color(0xFF1B1B1B), KitPattern.STRIPES),
+        "ac_milan" to KitSpec(Color(0xFF1B1B1B), Color(0xFFD2232A), Color.White, Color(0xFF1B1B1B), KitPattern.STRIPES),
+        "juventus" to KitSpec(Color.White, Color(0xFF1B1B1B), Color(0xFF1B1B1B), Color(0xFF1B1B1B), KitPattern.STRIPES),
+        "napoli" to KitSpec(Color(0xFF12A0D7), Color.White, Color.White, Color(0xFF12A0D7)),
+        "paris_saint_germain" to KitSpec(Color(0xFF004170), Color(0xFFD2042C), Color(0xFF004170), Color(0xFF004170), KitPattern.SASH)
+    )
+
+    /** 门将独立配色（与场上球员和对方门将都区分开） */
+    private val gkKitHome = KitSpec(Color(0xFF2FE86B), Color(0xFF1B1B1B), Color(0xFF1B1B1B), Color(0xFF2FE86B))
+    private val gkKitAway = KitSpec(Color(0xFFFF8A1E), Color(0xFF1B1B1B), Color(0xFF1B1B1B), Color(0xFFFF8A1E))
+
+    /** 未收录球队的兜底队服：主色衣身 + 副色袖/裤 + 主色袜 */
+    private fun kitForTeam(team: Team): KitSpec {
+        teamKits[team.id]?.let { return it }
+        return KitSpec(team.primaryColor, team.secondaryColor, team.secondaryColor, team.primaryColor)
+    }
+
+    /** 两队球衣主色是否"撞衫"（RGB 距离过近） */
+    private fun kitClash(a: KitSpec, b: KitSpec): Boolean {
+        val dr = a.shirt.red - b.shirt.red
+        val dg = a.shirt.green - b.shirt.green
+        val db = a.shirt.blue - b.shirt.blue
+        val dist = kotlin.math.sqrt(dr * dr + dg * dg + db * db)   // 0 ~ 1.73
+        return dist < 0.38f
+    }
+
     // ==================== 2D 头像查询 ====================
 
     /** 去掉 "(2012)" 这类年份后缀 */
@@ -331,7 +388,7 @@ object StarLikeness {
     }
 
     /**
-     * 生成一支球队的 3D 外观列表
+     * 生成一支球队的 3D 外观列表（独立使用，无撞衫处理）
      * @param starIndex 招牌球星所在下标（默认 9 = 中锋），该球员使用球队招牌球星特征
      * 下标 0 为门将，自动使用门将配色
      */
@@ -340,33 +397,80 @@ object StarLikeness {
         playerCount: Int,
         starIndex: Int = 9
     ): List<PlayerLook> {
-        val starParams = paramsForTeam(team.name, team.primaryColor, team.secondaryColor)
+        return buildLooks(team, kitForTeam(team), gkKitHome, playerCount, starIndex)
+    }
+
+    /**
+     * 一场比赛的主客队外观（含撞衫处理 + 双方门将独立配色）：
+     * 两队球衣主色过于接近时，客队自动改穿客场（副色衣身），仍撞则强制黑衫。
+     * 例：利物浦 vs 拜仁（红对红）→ 客队换白袖副色；皇马 vs 热刺（白对白）→ 客队换藏青。
+     */
+    fun looksForMatch(
+        home: Team,
+        away: Team,
+        playerCount: Int
+    ): Pair<List<PlayerLook>, List<PlayerLook>> {
+        val homeKit = kitForTeam(home)
+        var awayKit = kitForTeam(away)
+        if (kitClash(homeKit, awayKit)) {
+            // 客队改穿客场：副色为衣身，主色作袖/花纹
+            val swapped = KitSpec(awayKit.shirt2, awayKit.shirt, awayKit.shirt, awayKit.socks, awayKit.pattern)
+            awayKit = if (kitClash(homeKit, swapped)) {
+                KitSpec(Color(0xFF1B1B1B), Color.White, Color(0xFF1B1B1B), Color(0xFF1B1B1B))
+            } else {
+                swapped
+            }
+        }
+        return buildLooks(home, homeKit, gkKitHome, playerCount) to
+            buildLooks(away, awayKit, gkKitAway, playerCount)
+    }
+
+    /** 按队服规格生成 11 人外观（下标 0 门将，starIndex 招牌球星） */
+    private fun buildLooks(
+        team: Team,
+        kit: KitSpec,
+        gk: KitSpec,
+        playerCount: Int,
+        starIndex: Int = 9
+    ): List<PlayerLook> {
+        val starParams = paramsForTeam(team.name, kit.shirt, kit.shirt2)
         return (0 until playerCount).map { i ->
+            val seed = team.id.hashCode() * 31 + i
+            val skin = skinPalette[(seed and 0xFF) % skinPalette.size]
+            val hair = hairPalette[(seed shr 8 and 0xFF) % hairPalette.size]
+            val style = style3DPalette[(seed shr 16 and 0xFF) % style3DPalette.size]
             when {
                 i == 0 -> PlayerLook(
-                    kitColor1 = 0xFF212121.toInt(),          // 门将深色球衣
-                    kitColor2 = team.primaryColor.toArgb(),
-                    skinColor = starParams.skinColor.toArgb(),
-                    hairColor = starParams.hairColor.toArgb(),
-                    hairStyle3D = to3DStyle(starParams.hairStyle)
+                    kitColor1 = gk.shirt.toArgb(),
+                    kitColor2 = gk.shirt2.toArgb(),
+                    skinColor = skin,
+                    hairColor = hair,
+                    hairStyle3D = style,
+                    shortsColor = gk.shorts.toArgb(),
+                    socksColor = gk.socks.toArgb(),
+                    pattern = gk.pattern,
+                    isGoalkeeper = true
                 )
                 i == starIndex -> PlayerLook(
-                    kitColor1 = team.primaryColor.toArgb(),
-                    kitColor2 = team.secondaryColor.toArgb(),
+                    kitColor1 = kit.shirt.toArgb(),
+                    kitColor2 = kit.shirt2.toArgb(),
                     skinColor = starParams.skinColor.toArgb(),
                     hairColor = starParams.hairColor.toArgb(),
-                    hairStyle3D = to3DStyle(starParams.hairStyle)
+                    hairStyle3D = to3DStyle(starParams.hairStyle),
+                    shortsColor = kit.shorts.toArgb(),
+                    socksColor = kit.socks.toArgb(),
+                    pattern = kit.pattern
                 )
-                else -> {
-                    val seed = team.id.hashCode() * 31 + i
-                    PlayerLook(
-                        kitColor1 = team.primaryColor.toArgb(),
-                        kitColor2 = team.secondaryColor.toArgb(),
-                        skinColor = skinPalette[(seed and 0xFF) % skinPalette.size],
-                        hairColor = hairPalette[(seed shr 8 and 0xFF) % hairPalette.size],
-                        hairStyle3D = style3DPalette[(seed shr 16 and 0xFF) % style3DPalette.size]
-                    )
-                }
+                else -> PlayerLook(
+                    kitColor1 = kit.shirt.toArgb(),
+                    kitColor2 = kit.shirt2.toArgb(),
+                    skinColor = skin,
+                    hairColor = hair,
+                    hairStyle3D = style,
+                    shortsColor = kit.shorts.toArgb(),
+                    socksColor = kit.socks.toArgb(),
+                    pattern = kit.pattern
+                )
             }
         }
     }
