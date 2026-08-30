@@ -36,8 +36,9 @@ private data class SetPieceData(
 /**
  * 游戏引擎核心类
  *
- * 实时模拟：球员 AI（压迫/抢断/铲球）、球的物理、裁判（跟球跑动/鸣哨/出牌）、
- * 任意球与点球。规则判定基于 IFAB《足球竞赛规则》Law 12 / Law 14。
+ * 实时模拟：球员 AI（压迫/抢断/铲球 + 无球跑位系统）、球的物理、
+ * 裁判（跟球跑动/鸣哨/出牌）、任意球与点球。
+ * 规则判定基于 IFAB《足球竞赛规则》Law 12 / Law 14。
  */
 class GameEngine(
     val match: Match,
@@ -60,9 +61,12 @@ class GameEngine(
 
     /**
      * 大按钮三态：随局势自动切换
-     * SPRINT=按住加速 / SHOOT=点按射门 / TACKLE=点按铲球
+     * SPRINT=按住加速（带球=爆趟） / SHOOT=蓄力射门 / TACKLE=点按铲球
      */
     enum class ActionMode { SPRINT, SHOOT, TACKLE }
+
+    /** 无球跑位模式 */
+    private enum class OffBallMode { ATTACK, DEFEND, LOOSE }
 
     /** 当前比赛阶段 */
     var phase: MatchPhase = MatchPhase.PLAYING
@@ -282,7 +286,15 @@ class GameEngine(
                 isPressing && rank == 1 && (p.position.distanceTo(ballPosition) < 14f || callPressing) -> {
                     chaseBall(p, delta, 0.9f)   // 第二压迫者（呼叫压位时无视距离）
                 }
-                else -> formationAI(p, delta)
+                else -> {
+                    // 其余球员：无球跑位系统（不再全员涌向球 → 不是碰碰车）
+                    val mode = when {
+                        ownerSide == null -> OffBallMode.LOOSE
+                        ownerSide == p.teamSide -> OffBallMode.ATTACK
+                        else -> OffBallMode.DEFEND
+                    }
+                    offBallAI(p, delta, mode)
+                }
             }
         }
     }
@@ -295,6 +307,194 @@ class GameEngine(
             ballPosition.z + ballVelocity.z * 0.25f
         )
         movePlayer(p, intercept, delta, speedFactor)
+    }
+
+    private fun tryPossession(p: Player) {
+        if (pickupCooldown > 0f || ballHeight > 1.4f) return
+        val dx = p.position.x - ballPosition.x
+        val dz = p.position.z - ballPosition.z
+        if (dx * dx + dz * dz < 1.2f * 1.2f) {
+            assignBallOwner(p)
+        }
+    }
+
+    /** 持球权转移（同步 hasBall / 控球保护时间 / 接传球射门窗口 / 控制权自动切换） */
+    private fun assignBallOwner(p: Player) {
+        if (ballOwner == p) return
+        // 接到队友传球：短暂给出"射门"按钮（接球即射机会）
+        val passer = lastPasser
+        if (passer != null && p !== passer && passTravelTimer < 4f &&
+            p.teamSide == passer.teamSide && passer.teamSide == playerSide && !p.isGoalkeeper
+        ) {
+            receiveWindow = 1.2f
+        }
+        lastPasser = null
+        // 我方拿球 → 控制权自动交给拿球者（门将除外）
+        if (p.teamSide == playerSide && !p.isGoalkeeper && p !== activePlayer) {
+            switchControlTo(p)
+        }
+        ballOwner?.hasBall = false
+        ballOwner = p
+        p.hasBall = true
+        lastTouch = p
+        ballControlTime = 0f
+        ballHeight = 0.1f
+        ballHeightVelocity = 0f
+    }
+
+    /** 控制权切到指定球员（自动换人共用） */
+    private fun switchControlTo(p: Player) {
+        activePlayer?.isActive = false
+        activePlayer?.isPlayerControlled = false
+        activePlayer = p
+        p.isActive = true
+        p.isPlayerControlled = true
+    }
+
+    // ==================== 无球跑位系统（不是碰碰车） ====================
+
+    /**
+     * 无球跑位：按"进攻/防守/松散球"三种局势分角色跑位，并施加队友最小间距分离力。
+     *
+     * 进攻（我方持球）：
+     * - 边锋拉边贴边线，随球前压保持宽度（拉开进攻宽度）
+     * - 中锋斜插身后空当，与持球者保持 13m 纵深（直塞目标）
+     * - 中场：距持球者最近的 CM 回撤接应（7m 短传点），另一人拖后保护（攻守平衡）
+     * - 边后卫沿边路套上（落后球 9m 的套边选项）
+     * - 中后卫拖后，不越过球太多（保出球/回防支点）
+     *
+     * 防守（对方持球）：
+     * - 中后卫收在球与球门之间，兼顾盯防最近对手
+     * - 边后卫退守边路走廊
+     * - 中场在球后 5m 组成拦截线
+     * - 前场球员只回撤到中线附近松散盯人（保留反击身位，不深度回防）
+     *
+     * 松散球（无人持球）：全队向球适度收拢（阵型 50% + 球 50%）
+     *
+     * 通用：与最近队友（含持球者）保持 ≥3.2m 间距 —— 反"碰碰车"分离力
+     */
+    private fun offBallAI(p: Player, delta: Float, mode: OffBallMode) {
+        val attackSign = if (p.teamSide == GameState.TeamSide.HOME) 1f else -1f
+        val halfW = GameState.FIELD_WIDTH / 2
+        val halfL = GameState.FIELD_LENGTH / 2
+
+        // 己方外场队友（含持球者，用于分离；排除自己）
+        val mates = (if (p.teamSide == GameState.TeamSide.HOME) homePlayers else awayPlayers)
+            .filter { !it.sentOff && !it.isGoalkeeper && it !== p }
+
+        var tx: Float
+        var tz: Float
+        var speedFactor = 0.85f
+
+        when (mode) {
+            OffBallMode.ATTACK -> {
+                when (p.role) {
+                    "LW", "RW" -> {
+                        // 拉边保持宽度，随球前压
+                        tx = if (p.homePosition.x < 0) -(halfW - 3f) else (halfW - 3f)
+                        tz = ballPosition.z + attackSign * 10f
+                        speedFactor = 0.95f
+                    }
+                    "ST" -> {
+                        // 斜插身后：保持球前 13m 纵深（直塞目标）
+                        tz = if (attackSign > 0) {
+                            (ballPosition.z + 13f).coerceAtMost(halfL - 6f)
+                        } else {
+                            (ballPosition.z - 13f).coerceAtLeast(-halfL + 6f)
+                        }
+                        tx = ballPosition.x * 0.5f
+                        speedFactor = 0.95f
+                    }
+                    "CM" -> {
+                        val cms = mates.filter { it.role == "CM" }
+                            .sortedBy { it.position.distanceTo(ballPosition) }
+                        if (cms.firstOrNull() === p) {
+                            // 接应点：持球者身后 7m、横向偏 4m（短传安全点）
+                            tx = ballPosition.x + (if (ballPosition.x > 0) -4f else 4f)
+                            tz = ballPosition.z - attackSign * 7f
+                            speedFactor = 0.95f
+                        } else {
+                            // 拖后保护（攻守平衡 / 二点保护）
+                            tx = ballPosition.x * 0.55f
+                            tz = ballPosition.z - attackSign * 10f
+                        }
+                    }
+                    "LB", "RB" -> {
+                        // 套边：沿边路跟进，落后球 9m
+                        tx = if (p.homePosition.x < 0) -(halfW - 6f) else (halfW - 6f)
+                        tz = ballPosition.z - attackSign * 9f
+                    }
+                    else -> {
+                        // 中后卫拖后
+                        tx = p.homePosition.x * 0.7f + ballPosition.x * 0.3f
+                        tz = ballPosition.z - attackSign * 13f
+                    }
+                }
+            }
+            OffBallMode.DEFEND -> {
+                when (p.role) {
+                    "CB" -> {
+                        // 收在球与球门之间，兼顾盯防最近对手
+                        tz = ballPosition.z - attackSign * 10f
+                        val mark = nearestOpponentOf(p)
+                        tx = mark?.position?.x?.let { mx -> mx * 0.7f + p.homePosition.x * 0.3f }
+                            ?: (p.homePosition.x * 0.7f + ballPosition.x * 0.3f)
+                    }
+                    "LB", "RB" -> {
+                        tz = ballPosition.z - attackSign * 8f
+                        tx = if (p.homePosition.x < 0) -(halfW - 7f) else (halfW - 7f)
+                    }
+                    "CM" -> {
+                        // 中场拦截线
+                        tz = ballPosition.z - attackSign * 5f
+                        tx = ballPosition.x * 0.5f
+                    }
+                    else -> {
+                        // 前场球员：回撤松散盯人，最多退到中线附近
+                        tz = ballPosition.z - attackSign * 15f
+                        tz = if (attackSign > 0) tz.coerceAtLeast(-2f) else tz.coerceAtMost(2f)
+                        tx = nearestOpponentOf(p)?.position?.x ?: p.homePosition.x
+                    }
+                }
+                // 防守纵深保护：不退到本方球门线
+                tz = if (attackSign > 0) tz.coerceAtLeast(-halfL + 8f) else tz.coerceAtMost(halfL - 8f)
+            }
+            OffBallMode.LOOSE -> {
+                tx = p.homePosition.x * 0.5f + ballPosition.x * 0.5f
+                tz = p.homePosition.z * 0.5f + ballPosition.z * 0.5f
+            }
+        }
+
+        // ===== 反碰碰车：与最近队友保持 ≥3.2m 间距 =====
+        val nearestMate = mates.minByOrNull { it.position.distanceTo(Vector3(tx, 0f, tz)) }
+        nearestMate?.let {
+            val dx = tx - it.position.x
+            val dz = tz - it.position.z
+            val d = kotlin.math.sqrt(dx * dx + dz * dz)
+            if (d < 3.2f && d > 0.01f) {
+                val push = (3.2f - d) * 1.6f
+                tx += dx / d * push
+                tz += dz / d * push
+            }
+        }
+
+        movePlayer(
+            p,
+            Vector3(
+                tx.coerceIn(-halfW + 2f, halfW - 2f),
+                0f,
+                tz.coerceIn(-halfL + 2f, halfL - 2f)
+            ),
+            delta,
+            speedFactor
+        )
+    }
+
+    /** 最近的对方外场球员（盯人用） */
+    private fun nearestOpponentOf(p: Player): Player? {
+        val opponents = if (p.teamSide == GameState.TeamSide.HOME) awayPlayers else homePlayers
+        return opponents.filter { !it.sentOff && !it.isGoalkeeper }
+            .minByOrNull { it.position.distanceTo(p.position) }
     }
 
     private fun tryPossession(p: Player) {
@@ -694,24 +894,6 @@ class GameEngine(
             if (d < best) best = d
         }
         return best
-    }
-
-    private fun formationAI(p: Player, delta: Float) {
-        // 阵型位置随球整体移动 25%，防守时兼顾盯人
-        var targetX = p.homePosition.x * 0.75f + ballPosition.x * 0.25f
-        var targetZ = p.homePosition.z * 0.75f + ballPosition.z * 0.25f
-        val ownerSide = ballOwner?.teamSide
-        if (ownerSide != null && ownerSide != p.teamSide && (p.role == "CB" || p.role == "LB" || p.role == "RB")) {
-            // 盯防最近对手
-            val mark = (if (p.teamSide == GameState.TeamSide.HOME) awayPlayers else homePlayers)
-                .filter { !it.sentOff && !it.isGoalkeeper }
-                .minByOrNull { it.position.distanceTo(p.position) }
-            if (mark != null) {
-                targetX = targetX * 0.6f + mark.position.x * 0.4f
-                targetZ = targetZ * 0.6f + mark.position.z * 0.4f
-            }
-        }
-        movePlayer(p, Vector3(targetX, 0f, targetZ), delta, 0.8f)
     }
 
     private fun goalkeeperAI(p: Player, delta: Float) {
