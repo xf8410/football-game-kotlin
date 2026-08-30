@@ -10,13 +10,12 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        // 包名换成全新的：绕开安装器对 com.football.game 包名下
-        // 几十次失败安装尝试留下的任何记录（签名记录/失败状态缓存等）
+        // 包名全新：绕开安装器对旧包名的任何记录
         applicationId = "com.footballgame.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.0.4"
+        versionCode = 6
+        versionName = "1.0.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -24,7 +23,7 @@ android {
         }
     }
 
-    // 输出文件名带版本号：football-1.0.4-release.apk / football-1.0.4-debug.apk
+    // 输出文件名带版本号：football-1.0.5-release.apk / football-1.0.5-debug.apk
     applicationVariants.all {
         outputs.all {
             val variantOutput = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
