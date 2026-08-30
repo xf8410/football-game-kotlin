@@ -6,17 +6,19 @@ plugins {
 
 android {
     namespace = "com.football.game"
-    compileSdk = 35
+    // compileSdk/targetSdk 从 35 降到 34：
+    // 对齐 uma-juece-ramen（同手机 ColorOS 16 上可正常安装的已知良好配置）
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.football.game"
-        // minSdk 从 24 降到 21（Android 5.0+）：
-        // 安装器对 minSdk 高于手机系统版本的包会"点安装瞬间弹回、不进安装进度页"。
-        // 项目只用了 AudioTrack/OpenGL ES 2.0/Compose，全部兼容 API 21。
         minSdk = 21
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        targetSdk = 34
+        // versionCode 递增（对齐 ramen 的发版习惯）：
+        // 之前多轮构建一直是 versionCode=1 且签名各不相同，
+        // 安装器对"同 versionCode 不同签名"的覆盖尝试会直接拒绝且不弹进度页
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -26,11 +28,7 @@ android {
 
     buildTypes {
         release {
-            // 修复"APK 安装直接失败"：CI 构建的 release 包原先没有签名，
-            // Android 会直接拒绝安装（安装界面闪一下就退出）。
-            // 这里让 release 也用 debug keystore 签名，产出的 app-release.apk 可直接安装。
-            // CI 端用 actions/cache 固定 ~/.android/debug.keystore，保证跨构建签名一致，
-            // 以后覆盖安装不会报"签名冲突"。
+            // release 用 debug keystore 签名（CI 端 actions/cache 固定 keystore，签名跨构建稳定）
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
