@@ -10,7 +10,10 @@ android {
 
     defaultConfig {
         applicationId = "com.football.game"
-        minSdk = 24
+        // minSdk 从 24 降到 21（Android 5.0+）：
+        // 安装器对 minSdk 高于手机系统版本的包会"点安装瞬间弹回、不进安装进度页"。
+        // 项目只用了 AudioTrack/OpenGL ES 2.0/Compose，全部兼容 API 21。
+        minSdk = 21
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
