@@ -6,14 +6,13 @@ plugins {
 
 android {
     namespace = "com.football.game"
-    // 包名换成全新的：绕开安装器对 com.football.game 包名下
-    // 几十次失败安装尝试留下的任何记录（签名记录/失败状态缓存等）
-    applicationId = "com.footballgame.app"
-
     // minSdk 对齐 uma-juece-ramen（可正常安装的已知良好配置）
     compileSdk = 34
 
     defaultConfig {
+        // 包名换成全新的：绕开安装器对 com.football.game 包名下
+        // 几十次失败安装尝试留下的任何记录（签名记录/失败状态缓存等）
+        applicationId = "com.footballgame.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 5
