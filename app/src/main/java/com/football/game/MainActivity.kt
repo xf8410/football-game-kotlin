@@ -1,6 +1,16 @@
 package com.football.game
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.graphics.Typeface
 import android.os.Bundle
+import android.view.Gravity
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -28,6 +38,16 @@ import com.football.game.ui.theme.FootballGameTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 崩溃报告优先：上次启动崩溃过 → 用"原生 View"显示报告页（不依赖 Compose，
+        // 即使 Compose/主题本身崩溃也能显示出来），用户截图即可定位
+        val previousCrash = CrashReporter.readPreviousCrash(this)
+        if (previousCrash != null) {
+            showCrashReport(previousCrash)
+            return
+        }
+        CrashReporter.install(this)
+
         enableEdgeToEdge()
         setContent {
             FootballGameTheme {
@@ -39,6 +59,72 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 原生 View 崩溃报告页：完整堆栈 + 复制按钮 + 清除并重启按钮
+     */
+    private fun showCrashReport(report: String) {
+        val d = resources.displayMetrics.density
+        val pad = (16 * d).toInt()
+
+        val scroll = ScrollView(this)
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+
+        val title = TextView(this).apply {
+            text = "应用上次启动时崩溃了\n\n崩溃信息如下，请截图发给开发者，\n然后点\"清除并重新启动\"。"
+            textSize = 16f
+            setPadding(0, 0, 0, pad)
+        }
+
+        val body = TextView(this).apply {
+            text = report
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextIsSelectable(true)
+        }
+
+        val copyBtn = Button(this).apply {
+            text = "复制崩溃信息"
+            setOnClickListener {
+                try {
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("crash", report))
+                    Toast.makeText(this@MainActivity, "已复制", Toast.LENGTH_SHORT).show()
+                } catch (_: Throwable) {
+                }
+            }
+        }
+
+        val restartBtn = Button(this).apply {
+            text = "清除并重新启动"
+            setOnClickListener {
+                CrashReporter.clear(this@MainActivity)
+                recreate()
+            }
+        }
+
+        col.addView(title)
+        col.addView(body)
+        col.addView(
+            copyBtn,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = pad }
+        )
+        col.addView(
+            restartBtn,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = pad / 2 }
+        )
+        scroll.addView(col)
+        setContentView(scroll)
     }
 }
 
