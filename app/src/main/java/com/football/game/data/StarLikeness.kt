@@ -16,7 +16,10 @@ import com.football.game.ui.component.StarAvatarParams
  * - 2D 头像：LeagueScreen / EraSelectScreen 等界面
  * - 3D 模型：渲染器通过 PlayerLook 上色
  *
- * 队服系统：每支球队有独立的 球衣主色/袖色/球裤/球袜/花纹（竖条纹、斜杠等），
+ * 角色卡系统：同一球星在不同球队 = 不同角色卡/职责（默认位置 + 可踢位置 +
+ * 球队专属用法），例如阿什拉夫在皇马是右后卫，在大巴黎则按需客串边锋/中场/中卫。
+ *
+ * 队服系统：每支球队有独立的 球衣主色/袖色/球裤/球袜/花纹，
  * 同场比赛两队主色过于接近时自动换客场球衣，门将穿独立荧光色。
  *
  * 说明：全部为程序化卡通风格，不使用真实照片（肖像权），仅特征神似。
@@ -24,7 +27,6 @@ import com.football.game.ui.component.StarAvatarParams
 object StarLikeness {
 
     // ==================== 球星特征预设 ====================
-    // key 为特征核心名，匹配时对全名做包含匹配（"埃尔林·哈兰德" 命中 "哈兰德"）
     private val presets: Map<String, StarAvatarParams> = mapOf(
         // ---------- 现代球星 ----------
         "姆巴佩" to StarAvatarParams(
@@ -117,6 +119,10 @@ object StarLikeness {
         ),
         "阿德耶米" to StarAvatarParams(
             skinColor = Color(0xFF7A4A2B), hairColor = Color(0xFF141414),
+            hairStyle = AvatarHairStyle.BUZZ
+        ),
+        "阿什拉夫·哈基米" to StarAvatarParams(
+            skinColor = Color(0xFF9C6B43), hairColor = Color(0xFF141414),
             hairStyle = AvatarHairStyle.BUZZ
         ),
 
@@ -241,6 +247,56 @@ object StarLikeness {
         )
     )
 
+    // ==================== 角色卡：同一球星不同球队不同职责 ====================
+
+    /**
+     * 球星角色卡
+     * @param roles       可胜任的位置（role 代码）
+     * @param duty        职责描述（踢法定位）
+     * @param defaultRole 默认位置
+     * @param byTeam      球队专属用法：某些球星在特定球队会被赋予不同职责
+     *                    （特殊情况：如阿什拉夫在大巴黎按需客串边锋/中场/中卫）
+     */
+    data class StarRoleCard(
+        val roles: List<String>,
+        val duty: String,
+        val defaultRole: String,
+        val byTeam: Map<String, String> = emptyMap()
+    )
+
+    private val roleCards: Map<String, StarRoleCard> = mapOf(
+        "哈兰德" to StarRoleCard(listOf("ST"), "禁区终结者：背身支点 + 抢点爆射", "ST"),
+        "姆巴佩" to StarRoleCard(listOf("ST", "LW"), "反击箭头：斜插身后 + 高速爆趟", "ST"),
+        "萨拉赫" to StarRoleCard(listOf("RW", "ST"), "右路内切爆点：肋部斜插 + 兜射远角", "RW"),
+        "亚马尔" to StarRoleCard(listOf("RW", "LW"), "边路持球爆点：内切组织 + 倒三角", "RW"),
+        "凯恩" to StarRoleCard(listOf("ST", "CM"), "支点中锋：回撤做球 + 禁区抢点", "ST"),
+        "贝林厄姆" to StarRoleCard(listOf("CM", "ST"), "全能中场：后插上抢点 + 逼抢发动机", "CM"),
+        "萨卡" to StarRoleCard(listOf("RW", "LW", "CM"), "边路走廊：下底传中 + 内切射门", "RW"),
+        "孙兴慜" to StarRoleCard(listOf("LW", "ST", "RW"), "内切射手：左路右脚兜射远角 + 反击箭头", "LW"),
+        "布鲁诺·费尔南德斯" to StarRoleCard(listOf("CM", "RW"), "组织核心：直塞调度 + 远射", "CM"),
+        "帕尔默" to StarRoleCard(listOf("CM", "RW"), "前场自由人：肋部直塞 + 定位球", "CM"),
+        "格里兹曼" to StarRoleCard(listOf("CM", "ST", "LW"), "影锋串联：穿插衔接 + 二点进攻", "CM"),
+        "德布劳内" to StarRoleCard(listOf("CM", "RW"), "进攻发动机：贴地直塞 + 弧线传中", "CM"),
+        "莱万多夫斯基" to StarRoleCard(listOf("ST"), "禁区之王：抢点头槌 + 背身做球", "ST"),
+        "穆西亚拉" to StarRoleCard(listOf("CM", "LW", "RW"), "盘带推进器：中路持球突破", "CM"),
+        "维尔茨" to StarRoleCard(listOf("CM", "LW"), "创造力中场：穿透直塞 + 推进", "CM"),
+        "劳塔罗" to StarRoleCard(listOf("ST"), "拼抢型中锋：压迫逼抢 + 抢点", "ST"),
+        "莱奥" to StarRoleCard(listOf("LW", "ST"), "左路爆点：高速爆趟 + 强突底线", "LW"),
+        "弗拉霍维奇" to StarRoleCard(listOf("ST"), "抢点中锋：禁区抢射 + 支点", "ST"),
+        "克瓦拉茨赫利亚" to StarRoleCard(listOf("LW", "RW"), "内切型边锋：右脚兜射远角", "LW"),
+        "登贝莱" to StarRoleCard(listOf("RW", "LW", "ST"), "双足边锋：左右开弓 + 反击箭头", "RW"),
+        "阿德耶米" to StarRoleCard(listOf("LW", "ST"), "速度型边锋：身后冲刺", "LW"),
+        "阿什拉夫·哈基米" to StarRoleCard(
+            listOf("RB", "CB", "CM", "RW", "LW"),
+            "边路万金油：攻守兼备，助攻型边卫；在大巴黎属特殊情况——按需客串边锋/中场/中卫",
+            "RB",
+            byTeam = mapOf("paris_saint_germain" to "RW")
+        ),
+        "梅西" to StarRoleCard(listOf("RW", "CM", "ST"), "自由人：右路内切 + 中路组织", "RW"),
+        "C罗" to StarRoleCard(listOf("ST", "LW"), "全能攻击手：抢点 + 内切爆射", "ST"),
+        "内马尔" to StarRoleCard(listOf("LW", "CM"), "边路魔术师：持球突破 + 直塞", "LW")
+    )
+
     // ==================== 球队 → 招牌球星 ====================
     private val teamStar: Map<String, String> = mapOf(
         "曼彻斯特城" to "哈兰德",
@@ -259,8 +315,48 @@ object StarLikeness {
         "AC米兰" to "莱奥",
         "尤文图斯" to "弗拉霍维奇",
         "那不勒斯" to "克瓦拉茨赫利亚",
-        "巴黎圣日耳曼" to "登贝莱"
+        "巴黎圣日耳曼" to "阿什拉夫·哈基米"
     )
+
+    // ==================== 角色卡查询 ====================
+
+    /** role 代码 → 4-3-3 槽位下标 */
+    private fun slotForRole(role: String): Int = when (role) {
+        "GK" -> 0
+        "LB" -> 1
+        "CB" -> 2
+        "RB" -> 4
+        "CM" -> 6
+        "LW" -> 8
+        "ST" -> 9
+        "RW" -> 10
+        else -> 9
+    }
+
+    /**
+     * 球星在 4-3-3 中的位置槽（按角色卡：同一球星在不同球队不同职责 → 不同槽位）
+     * 例：阿什拉夫默认右后卫（槽 4），在大巴黎按角色卡踢边锋（槽 10）
+     */
+    fun starSlotForTeam(team: Team): Int {
+        val star = teamStar[team.name] ?: return 9
+        val card = roleCards[star] ?: return 9
+        val role = card.byTeam[team.id] ?: card.defaultRole
+        return slotForRole(role)
+    }
+
+    /** 球队招牌球星的角色卡（名字 + 卡），无招牌球星/无卡返回 null */
+    fun roleCardForTeam(team: Team): Pair<String, StarRoleCard>? {
+        val star = teamStar[team.name] ?: return null
+        val card = roleCards[star] ?: return null
+        return star to card
+    }
+
+    /** 球星在该球队实际担任的位置 role 代码 */
+    fun starRoleForTeam(team: Team): String? {
+        val star = teamStar[team.name] ?: return null
+        val card = roleCards[star] ?: return null
+        return card.byTeam[team.id] ?: card.defaultRole
+    }
 
     // ==================== 球队队服库 ====================
 
@@ -391,13 +487,12 @@ object StarLikeness {
 
     /**
      * 生成一支球队的 3D 外观列表（独立使用，无撞衫处理）
-     * @param starIndex 招牌球星所在下标（默认 9 = 中锋），该球员使用球队招牌球星特征
-     * 下标 0 为门将，自动使用门将配色
+     * 招牌球星槽位按角色卡解析（starSlotForTeam），下标 0 为门将
      */
     fun lookForTeam(
         team: Team,
         playerCount: Int,
-        starIndex: Int = 9
+        starIndex: Int = starSlotForTeam(team)
     ): List<PlayerLook> {
         return buildLooks(team, kitForTeam(team), gkKitHome, playerCount, starIndex)
     }
@@ -423,17 +518,17 @@ object StarLikeness {
                 swapped
             }
         }
-        return buildLooks(home, homeKit, gkKitHome, playerCount) to
-            buildLooks(away, awayKit, gkKitAway, playerCount)
+        return buildLooks(home, homeKit, gkKitHome, playerCount, starSlotForTeam(home)) to
+            buildLooks(away, awayKit, gkKitAway, playerCount, starSlotForTeam(away))
     }
 
-    /** 按队服规格生成 11 人外观（下标 0 门将，starIndex 招牌球星） */
+    /** 按队服规格生成 11 人外观（下标 0 门将，starIndex 招牌球星槽位） */
     private fun buildLooks(
         team: Team,
         kit: KitSpec,
         gk: KitSpec,
         playerCount: Int,
-        starIndex: Int = 9
+        starIndex: Int
     ): List<PlayerLook> {
         val starParams = paramsForTeam(team.name, kit.shirt, kit.shirt2)
         return (0 until playerCount).map { i ->
