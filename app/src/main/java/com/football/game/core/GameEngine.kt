@@ -55,6 +55,9 @@ class GameEngine(
     var inputVector = Vector2D.ZERO
     var isSprinting = false
 
+    /** 呼叫压位：按住时第二名队友无视距离参与逼抢（"呼叫压位"键，实况式呼叫协防） */
+    var callPressing = false
+
     /**
      * 大按钮三态：随局势自动切换
      * SPRINT=按住加速 / SHOOT=点按射门 / TACKLE=点按铲球
@@ -72,7 +75,7 @@ class GameEngine(
     var onGoal: ((GameState.TeamSide) -> Unit)? = null
 
     /** 音效事件："whistle" / "whistle_short" / "kick" / "tackle" */
-    var onSound: ((String) -> Unit)? = null
+    var onSound: ((String) -> Unit)?? = null
 
     /** 界面横幅（犯规/牌/定位球提示） */
     var onBanner: ((String) -> Unit)? = null
@@ -88,6 +91,19 @@ class GameEngine(
     var homeSubsUsed = 0
         private set
     var awaySubsUsed = 0
+        private set
+
+    /** 比赛统计（暂停面板"统计数据"用：射门/传球/控球率） */
+    data class MatchStats(
+        var homeShots: Int = 0,
+        var awayShots: Int = 0,
+        var homePasses: Int = 0,
+        var awayPasses: Int = 0,
+        var possessionHome: Float = 0f,
+        var possessionAway: Float = 0f
+    )
+
+    var stats = MatchStats()
         private set
 
     private var pickupCooldown = 0f      // 出球后短暂不可再拿球
@@ -150,6 +166,15 @@ class GameEngine(
         receiveWindow = (receiveWindow - delta).coerceAtLeast(0f)
         autoSwitchCooldown = (autoSwitchCooldown - delta).coerceAtLeast(0f)
 
+        // 控球统计（暂停面板控球率用）
+        ballOwner?.let { o ->
+            if (o.teamSide == GameState.TeamSide.HOME) {
+                stats.possessionHome += delta
+            } else {
+                stats.possessionAway += delta
+            }
+        }
+
         // 倒地/滑铲状态推进
         for (p in allActive()) {
             p.tackleCooldown = (p.tackleCooldown - delta).coerceAtLeast(0f)
@@ -181,7 +206,7 @@ class GameEngine(
             }
         }
 
-        // 无球时自动切到离球最近的己方球员（省掉"切换"按钮）
+        // 无球时自动切到离球最近的己方球员（省掉"切换"按钮；手动切换另有 switchToNearest）
         val currentOwner = ballOwner
         val ctrl = activePlayer
         if (ctrl != null && autoSwitchCooldown <= 0f &&
@@ -253,8 +278,8 @@ class GameEngine(
                     tryPossession(p)
                     tryTackle(p)
                 }
-                isPressing && rank == 1 && p.position.distanceTo(ballPosition) < 14f -> {
-                    chaseBall(p, delta, 0.9f)   // 第二压迫者
+                isPressing && rank == 1 && (p.position.distanceTo(ballPosition) < 14f || callPressing) -> {
+                    chaseBall(p, delta, 0.9f)   // 第二压迫者（呼叫压位时无视距离）
                 }
                 else -> formationAI(p, delta)
             }
@@ -899,6 +924,8 @@ class GameEngine(
         ballControlTime = 0f
         pickupCooldown = 0.3f
         gkDiveTimer = 0f
+        callPressing = false
+        stats = MatchStats()
         for (p in homePlayers + awayPlayers) {
             p.position = p.homePosition
             p.velocity = Vector3.ZERO
@@ -1071,9 +1098,10 @@ class GameEngine(
         passFrom(player)
     }
 
-    fun doShoot() {
+    /** 射门（可带力度 0~1：快点=半力推射，长按蓄力=满力爆射） */
+    fun doShoot(power: Float = 0.5f) {
         val player = activePlayer ?: return
-        shootFrom(player)
+        shootFrom(player, power)
     }
 
     fun doThroughBall() {
@@ -1101,6 +1129,7 @@ class GameEngine(
         if (bestTarget != null) {
             lastPasser = player
             passTravelTimer = 0f
+            if (player.teamSide == GameState.TeamSide.HOME) stats.homePasses++ else stats.awayPasses++
             val lead = Vector3(0f, 0f, forwardDir * 8f)
             val targetPos = bestTarget.position + lead
             val dir = (targetPos - player.position).flatten().normalized()
@@ -1141,6 +1170,7 @@ class GameEngine(
         if (bestTarget != null) {
             lastPasser = player
             passTravelTimer = 0f
+            if (player.teamSide == GameState.TeamSide.HOME) stats.homePasses++ else stats.awayPasses++
             val dir = (bestTarget.position - player.position).flatten().normalized()
             ballVelocity = dir * GameState.PASS_SPEED
             ballHeightVelocity = 0.5f
@@ -1153,9 +1183,13 @@ class GameEngine(
         }
     }
 
-    /** 通用射门（指定射门者） */
-    fun shootFrom(player: Player) {
+    /**
+     * 通用射门（指定射门者）
+     * power 0~1：越大球速越快（0.8~1.3 倍）、球越高、准头越差（大力出奇迹也有风险）
+     */
+    fun shootFrom(player: Player, power: Float = 0.5f) {
         if (ballOwner != player) return
+        val p = power.coerceIn(0f, 1f)
 
         val targetGoalZ = if (player.teamSide == GameState.TeamSide.HOME) {
             GameState.FIELD_LENGTH / 2
@@ -1163,14 +1197,15 @@ class GameEngine(
             -GameState.FIELD_LENGTH / 2
         }
 
+        val spread = 1.2f + 2.6f * p
         val dir = Vector3(
-            Random.nextFloat() * 6f - 3f - player.position.x * 0.05f,
+            Random.nextFloat() * spread * 2f - spread - player.position.x * 0.05f,
             0f,
             targetGoalZ - player.position.z
         ).normalized()
 
-        ballVelocity = dir * GameState.SHOT_SPEED
-        ballHeightVelocity = 2f + Random.nextFloat() * 2f
+        ballVelocity = dir * (GameState.SHOT_SPEED * (0.8f + 0.5f * p))
+        ballHeightVelocity = 1.2f + 2.4f * p
         ballOwner = null
         player.hasBall = false
         lastTouch = player
@@ -1178,7 +1213,19 @@ class GameEngine(
         ballControlTime = 0f
         player.animState = Player.AnimState.KICK
         player.actionCooldown = 0.4f
+        if (player.teamSide == GameState.TeamSide.HOME) stats.homeShots++ else stats.awayShots++
         onSound?.invoke("kick")
+    }
+
+    /** 手动切换到离球最近的己方外场球员（"切换"键，防抖 0.8s） */
+    fun switchToNearest() {
+        val squad = if (playerSide == GameState.TeamSide.HOME) homePlayers else awayPlayers
+        val me = activePlayer
+        val target = squad
+            .filter { it !== me && !it.sentOff && !it.isGoalkeeper && it.fallTimer <= 0f && it.slideTimer <= 0f }
+            .minByOrNull { it.position.distanceTo(ballPosition) } ?: return
+        switchControlTo(target)
+        autoSwitchCooldown = 0.8f
     }
 
     fun switchPlayer() {
