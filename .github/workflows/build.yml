@@ -22,16 +22,31 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # 缓存 debug keystore：签名跨构建保持一致，
-    # 否则每次 CI 都生成新签名 → 新 APK 与手机上已装版本签名冲突，覆盖安装必失败
+    # 缓存 debug keystore：签名跨构建保持一致
     - name: Cache debug keystore (stable signing)
       uses: actions/cache@v4
       with:
         path: ~/.android/debug.keystore
         key: android-debug-keystore-v1
 
-    # 固定 Gradle 8.9（AGP 8.7 官方兼容版本；对齐 uma-juece-ramen 固定 Gradle 版本的做法，
-    # 不用 runner 自带的 Gradle 9.x——未测试组合，打包产物可能有差异）
+    # 显式保证 keystore 存在：此前 AGP 未在缓存路径生成 keystore，
+    # 导致每次构建签名都不同、缓存永远存不上；现在构建前用 keytool 补齐
+    - name: Ensure debug keystore exists
+      run: |
+        mkdir -p ~/.android
+        if [ ! -f ~/.android/debug.keystore ]; then
+          keytool -genkeypair \
+            -keystore ~/.android/debug.keystore \
+            -storepass android -keypass android \
+            -alias androiddebugkey \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 10000
+          echo "debug keystore generated"
+        else
+          echo "debug keystore restored from cache"
+        fi
+
+    # 固定 Gradle 8.9（AGP 8.7 官方兼容版本，不用 runner 自带 Gradle 9.x）
     - name: Setup Gradle (pinned 8.9)
       uses: gradle/actions/setup-gradle@v4
       with:
@@ -43,28 +58,26 @@ jobs:
     - name: Build Release APK (signed with debug keystore)
       run: gradle assembleRelease --no-daemon
 
-    # 诊断：把两个 APK 的签名证书与包信息（minSdk/版本/权限）打印进构建日志，
-    # 手机装不上时对着日志就能看出是签名、minSdk 还是清单问题
+    # 诊断：签名证书 + 包信息 + 启动入口(launchable-activity) + 图标，全部打进构建日志
     - name: Verify APK signature & badging
       run: |
         BT=$(ls -d ${ANDROID_HOME}/build-tools/*/ | sort | tail -1)
         echo "===== DEBUG APK ====="
         ls -la app/build/outputs/apk/debug/
-        ${BT}apksigner verify --print-certs --verbose app/build/outputs/apk/debug/app-debug.apk || echo "apksigner verify failed"
-        ${BT}aapt2 dump badging app/build/outputs/apk/debug/app-debug.apk | head -8 || true
+        ${BT}apksigner verify --print-certs app/build/outputs/apk/debug/football-*.apk || echo "apksigner verify failed"
+        ${BT}aapt2 dump badging app/build/outputs/apk/debug/football-*.apk | grep -E "package:|launchable-activity|application-icon|sdkVersion|targetSdkVersion" || true
         echo "===== RELEASE APK ====="
         ls -la app/build/outputs/apk/release/
-        ${BT}apksigner verify --print-certs --verbose app/build/outputs/apk/release/*.apk || echo "apksigner verify failed"
-        ${BT}aapt2 dump badging app/build/outputs/apk/release/*.apk | head -8 || true
+        ${BT}apksigner verify --print-certs app/build/outputs/apk/release/football-*.apk || echo "apksigner verify failed"
+        ${BT}aapt2 dump badging app/build/outputs/apk/release/football-*.apk | grep -E "package:|launchable-activity|application-icon|sdkVersion|targetSdkVersion" || true
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: apk-files
-        path: app/build/outputs/apk/*/app-*.apk
+        path: app/build/outputs/apk/*/football-*.apk
 
-    # 发布到 GitHub Releases：手机直接下载 .apk 文件
-    # （Actions artifacts 下载下来是 zip 压缩包，套一层壳，是"点了安装瞬间弹回"的常见原因）
+    # 发布到 GitHub Releases：手机直接下载 .apk 文件（文件名带版本号，认准最新版）
     - name: Publish APKs to GitHub Release (direct .apk download)
       env:
         GITHUB_TOKEN: ${{ github.token }}
@@ -72,7 +85,7 @@ jobs:
         TAG=latest-apk
         gh release delete $TAG --yes --cleanup-tag || true
         gh release create $TAG \
-          --title "足球游戏 安装包 (build ${{ github.run_number }})" \
-          --notes "直接下载 .apk 安装，无需解压。两个包都已签名可直接安装，内容相同，任选其一。" \
-          app/build/outputs/apk/debug/app-debug.apk \
-          app/build/outputs/apk/release/app-release.apk
+          --title "足球游戏 安装包 v1.0.3 (build ${{ github.run_number }})" \
+          --notes "下载 football-1.0.3-release.apk 直接安装（无需解压）。已签名、含崩溃报告。" \
+          app/build/outputs/apk/release/football-1.0.3-release.apk \
+          app/build/outputs/apk/debug/football-1.0.3-debug.apk
