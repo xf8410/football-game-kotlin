@@ -14,8 +14,8 @@ android {
         applicationId = "com.footballgame.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "1.0.5"
+        versionCode = 7
+        versionName = "1.0.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -23,7 +23,7 @@ android {
         }
     }
 
-    // 输出文件名带版本号：football-1.0.5-release.apk / football-1.0.5-debug.apk
+    // 输出文件名带版本号：football-1.0.6-release.apk / football-1.0.6-debug.apk
     applicationVariants.all {
         outputs.all {
             val variantOutput = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
