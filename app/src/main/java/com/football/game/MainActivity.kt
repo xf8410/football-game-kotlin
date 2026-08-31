@@ -32,6 +32,7 @@ import com.football.game.ui.screen.LeagueScreen
 import com.football.game.ui.screen.MainMenuScreen
 import com.football.game.ui.screen.MatchScreen
 import com.football.game.ui.screen.SettingsScreen
+import com.football.game.ui.screen.SplashScreen
 import com.football.game.ui.screen.TeamSelectScreen
 import com.football.game.ui.theme.FootballGameTheme
 
@@ -133,13 +134,22 @@ class MainActivity : ComponentActivity() {
  */
 @Composable
 fun FootballGameApp() {
-    var currentScreen by remember { mutableStateOf(Screen.MAIN_MENU) }
+    var currentScreen by remember { mutableStateOf(Screen.SPLASH) }
     var selectedHomeTeam by remember { mutableStateOf<Team?>(null) }
     var selectedAwayTeam by remember { mutableStateOf<Team?>(null) }
     var selectedLeague by remember { mutableStateOf<League?>(null) }
     var selectedLegendPlayer by remember { mutableStateOf<Player?>(null) }
 
     when (currentScreen) {
+        Screen.SPLASH -> {
+            // 启动加载页：仅软件进入时显示一次，进入后直接回主菜单不再出现
+            SplashScreen(
+                onDone = {
+                    currentScreen = Screen.MAIN_MENU
+                }
+            )
+        }
+
         Screen.MAIN_MENU -> {
             MainMenuScreen(
                 onQuickMatch = {
@@ -260,6 +270,7 @@ fun FootballGameApp() {
  * 屏幕枚举
  */
 enum class Screen {
+    SPLASH,
     MAIN_MENU,
     TEAM_SELECT_HOME,
     TEAM_SELECT_AWAY,
