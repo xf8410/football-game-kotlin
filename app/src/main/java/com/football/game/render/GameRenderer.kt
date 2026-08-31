@@ -21,15 +21,13 @@ import kotlin.math.sin
 
 /**
  * 游戏渲染器
- * OpenGL ES 2.0：真实关节式球员模型（头/发型/躯干/手臂/腿/球袜/球鞋），
+ * OpenGL ES 2.0：人形球员模型（胶囊四肢 + 旋转体躯干/球裤 + 颈部 + 肩部 + 球形头 + 发型），
  * 队服系统（竖条纹/横条纹/拼色/斜杠 + 独立球裤球袜配色），
  * 裁判模型（吹哨 + 红黄牌），滑铲/倒地姿态，条纹草皮 + 白线球场 + 球门
  *
- * 抽搐修复：
- * 1. onDrawFrame 先用真实帧间隔调用 frameCallback（MatchScreen 在此推进模拟），
- *    随后立即绘制 → 模拟与画面同帧同相，彻底消除"模拟/渲染不同步抖动"
- * 2. 帧率无关平滑：相机缓动、肢体摆动相位均按真实帧间隔推进，
- *    60Hz / 90Hz / 120Hz 屏幕手感一致
+ * 模型升级：方块人 → 人形（真人人身比例，圆锥过渡四肢，椭圆截面旋转体躯干）
+ * 抽搐修复（保留）：onDrawFrame 先用真实帧间隔调用 frameCallback（MatchScreen 在此推进模拟），
+ * 随后立即绘制 → 模拟与画面同帧同相；相机/动画帧率无关平滑
  */
 class GameRenderer : GLSurfaceView.Renderer {
 
@@ -80,10 +78,26 @@ class GameRenderer : GLSurfaceView.Renderer {
 
     private var program = GLProgram()
     private lateinit var sphere: GLShape
+    private lateinit var headSphere: GLShape
     private lateinit var cube: GLShape
     private lateinit var quad: GLShape
     private lateinit var centerCircle: GLShape
     private lateinit var markerRing: GLShape
+
+    // 人形部件（旋转体/胶囊）
+    private lateinit var legShape: GLShape
+    private lateinit var sockShape: GLShape
+    private lateinit var armShape: GLShape
+    private lateinit var neckShape: GLShape
+    private lateinit var shortsShape: GLShape
+    private lateinit var torsoSolid: GLShape
+    private lateinit var torsoStripes: List<GLShape>
+    private lateinit var torsoHoops: List<GLShape>
+    private lateinit var torsoHalf0: GLShape
+    private lateinit var torsoHalf1: GLShape
+    private lateinit var torsoSashBase: GLShape
+    private lateinit var torsoSashWedge: GLShape
+
     private var ready = false
     private var frameTime = 0f
 
@@ -105,6 +119,19 @@ class GameRenderer : GLSurfaceView.Renderer {
     private var ballHeight = 0f
     private var activePlayerIndex = -1
 
+    // ==================== 人形比例（米） ====================
+    // 腿：髋部枢轴 0.90，腿部胶囊局部 y ∈ [-0.42, +0.42]（站姿世界 0.06 ~ 0.90）
+    // 躯干：旋转体 1.10 ~ 1.67；球裤 0.82 ~ 1.15；手臂枢轴 1.57；头心 1.84；总高 ~2.0
+
+    private val torsoProfile = listOf(
+        Triple(1.10f, 0.185f, 0.125f),
+        Triple(1.22f, 0.168f, 0.115f),
+        Triple(1.38f, 0.175f, 0.120f),
+        Triple(1.54f, 0.200f, 0.132f),
+        Triple(1.63f, 0.210f, 0.138f),
+        Triple(1.67f, 0.140f, 0.105f)
+    )
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.13f, 0.36f, 0.19f, 1.0f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
@@ -116,10 +143,134 @@ class GameRenderer : GLSurfaceView.Renderer {
         if (program.id == 0) return
 
         sphere = GLShape(buildSphere(latBands = 8, lonBands = 12))
+        headSphere = GLShape(buildSphere(latBands = 12, lonBands = 18))
         cube = GLShape(buildCube())
         quad = GLShape(buildQuad())
         centerCircle = GLShape(buildRing(innerR = 8.9f, outerR = 9.15f))
         markerRing = GLShape(buildRing(innerR = 0.34f, outerR = 0.42f, segments = 28))
+
+        // ---- 人形部件 ----
+        // 腿：底部圆头 → 踝 → 小腿肚 → 大腿 → 髋圆头
+        legShape = GLShape(
+            buildRevolution(
+                listOf(
+                    Triple(-0.42f, 0.044f, 0.044f),
+                    Triple(-0.38f, 0.052f, 0.052f),
+                    Triple(-0.24f, 0.056f, 0.056f),
+                    Triple(-0.06f, 0.068f, 0.068f),
+                    Triple(0.12f, 0.078f, 0.078f),
+                    Triple(0.30f, 0.086f, 0.086f),
+                    Triple(0.40f, 0.088f, 0.088f),
+                    Triple(0.42f, 0.064f, 0.064f)
+                )
+            )
+        )
+        // 球袜：踝 → 小腿肚（略大于腿，包在外面）
+        sockShape = GLShape(
+            buildRevolution(
+                listOf(
+                    Triple(-0.36f, 0.062f, 0.062f),
+                    Triple(-0.20f, 0.064f, 0.064f),
+                    Triple(-0.08f, 0.074f, 0.074f),
+                    Triple(0.00f, 0.082f, 0.082f)
+                ),
+                capTop = false
+            )
+        )
+        // 手臂：腕 → 小臂 → 大臂 → 肩圆头
+        armShape = GLShape(
+            buildRevolution(
+                listOf(
+                    Triple(-0.28f, 0.034f, 0.034f),
+                    Triple(-0.24f, 0.040f, 0.040f),
+                    Triple(-0.10f, 0.045f, 0.045f),
+                    Triple(0.06f, 0.050f, 0.050f),
+                    Triple(0.20f, 0.056f, 0.056f),
+                    Triple(0.28f, 0.046f, 0.046f)
+                )
+            )
+        )
+        // 脖子
+        neckShape = GLShape(
+            buildRevolution(
+                listOf(
+                    Triple(0.00f, 0.052f, 0.050f),
+                    Triple(0.10f, 0.056f, 0.054f)
+                ),
+                capTop = false,
+                capBottom = false
+            )
+        )
+        // 球裤（髋部旋转体，绝对世界坐标）
+        shortsShape = GLShape(
+            buildRevolution(
+                listOf(
+                    Triple(0.82f, 0.160f, 0.118f),
+                    Triple(0.88f, 0.190f, 0.135f),
+                    Triple(1.00f, 0.200f, 0.140f),
+                    Triple(1.12f, 0.190f, 0.135f),
+                    Triple(1.15f, 0.175f, 0.125f)
+                )
+            )
+        )
+        // 躯干：纯色
+        torsoSolid = GLShape(buildRevolution(torsoProfile))
+        // 躯干：竖条纹（5 个 72° 扇区，交替染色）
+        torsoStripes = (0 until 5).map { i ->
+            GLShape(buildRevolution(torsoProfile, 3, i * 72f, (i + 1) * 72f))
+        }
+        // 躯干：横条纹（4 段堆叠圆环，交替染色，边界共用环无缝）
+        torsoHoops = listOf(
+            GLShape(
+                buildRevolution(
+                    listOf(
+                        Triple(1.10f, 0.185f, 0.125f),
+                        Triple(1.16f, 0.174f, 0.119f),
+                        Triple(1.22f, 0.168f, 0.115f)
+                    ),
+                    capTop = false
+                )
+            ),
+            GLShape(
+                buildRevolution(
+                    listOf(
+                        Triple(1.22f, 0.168f, 0.115f),
+                        Triple(1.30f, 0.171f, 0.117f),
+                        Triple(1.38f, 0.175f, 0.120f)
+                    ),
+                    capTop = false,
+                    capBottom = false
+                )
+            ),
+            GLShape(
+                buildRevolution(
+                    listOf(
+                        Triple(1.38f, 0.175f, 0.120f),
+                        Triple(1.46f, 0.187f, 0.126f),
+                        Triple(1.54f, 0.200f, 0.132f)
+                    ),
+                    capTop = false,
+                    capBottom = false
+                )
+            ),
+            GLShape(
+                buildRevolution(
+                    listOf(
+                        Triple(1.54f, 0.200f, 0.132f),
+                        Triple(1.59f, 0.207f, 0.136f),
+                        Triple(1.63f, 0.210f, 0.138f),
+                        Triple(1.67f, 0.140f, 0.105f)
+                    ),
+                    capBottom = false
+                )
+            )
+        )
+        // 躯干：左右拼色（两个 180° 半边）
+        torsoHalf0 = GLShape(buildRevolution(torsoProfile, 7, 0f, 180f))
+        torsoHalf1 = GLShape(buildRevolution(torsoProfile, 7, 180f, 360f))
+        // 躯干：斜杠（底色 + 一条斜置窄带）
+        torsoSashBase = GLShape(buildRevolution(torsoProfile, 14))
+        torsoSashWedge = GLShape(buildRevolution(torsoProfile, 2, 40f, 66f))
 
         GLES20.glEnableVertexAttribArray(program.aPosition)
         GLES20.glEnableVertexAttribArray(program.aNormal)
@@ -250,9 +401,8 @@ class GameRenderer : GLSurfaceView.Renderer {
     }
 
     /**
-     * 关节式球员模型：
-     * 阴影 → 双腿(摆动) → 球袜 → 球鞋 → 球裤 → 躯干(队服花纹) → 球袖 → 双臂(摆动) → 头 → 发型 → 选中标记
-     * 特殊姿态：滑铲（TACKLE，身体后倒 + 前腿伸出）、被铲倒地（FALL，平躺）
+     * 球员：姿态计算 + 人形绘制
+     * 特殊姿态：滑铲（TACKLE，身体后仰 + 前腿伸出）、被铲倒地（FALL，平躺）
      */
     private fun drawPlayer(player: Player, look: PlayerLook, index: Int, isActive: Boolean) {
         val pos = player.position
@@ -275,22 +425,48 @@ class GameRenderer : GLSurfaceView.Renderer {
         val amp = (speed / 6f).coerceIn(0f, 1f)
         val phase = frameTime * (4f + speed * 1.6f) + index * 1.9f
         var swing = sin(phase) * 32f * amp
-        if (sliding) swing = 0f
-        if (falling) swing = 0f
+        if (sliding || falling) swing = 0f
 
-        val kit1 = rgb(look.kitColor1)
-        val kit2 = rgb(look.kitColor2)
-        val shorts = rgb(look.shortsColor)
-        val socks = rgb(look.socksColor)
-        val sleeveC = if (look.pattern == KitPattern.SOLID) kit2 else kit1
-        val skin = rgb(look.skinColor)
-        val hairC = rgb(look.hairColor)
+        drawHumanoid(
+            px = pos.x,
+            pz = pos.z,
+            rotY = rotY,
+            lean = lean,
+            swing = swing,
+            sliding = sliding,
+            falling = falling,
+            kit1 = rgb(look.kitColor1),
+            kit2 = rgb(look.kitColor2),
+            pattern = look.pattern,
+            shorts = rgb(look.shortsColor),
+            socks = rgb(look.socksColor),
+            sleeve = if (look.pattern == KitPattern.SOLID) rgb(look.kitColor2) else rgb(look.kitColor1),
+            skin = rgb(look.skinColor),
+            hair = rgb(look.hairColor),
+            hairStyle = look.hairStyle3D,
+            isActive = isActive
+        )
+    }
+
+    /**
+     * 人形模型（球员/裁判共用）：
+     * 阴影 → 双腿(胶囊摆动) → 球袜 → 球鞋 → 球裤(旋转体) → 躯干(旋转体+队服花纹)
+     * → 肩垫 → 双臂(胶囊摆动) → 脖子 → 头(球) → 发型 → 选中标记
+     */
+    private fun drawHumanoid(
+        px: Float, pz: Float, rotY: Float, lean: Float,
+        swing: Float, sliding: Boolean, falling: Boolean,
+        kit1: FloatArray, kit2: FloatArray, pattern: KitPattern,
+        shorts: FloatArray, socks: FloatArray, sleeve: FloatArray,
+        skin: FloatArray, hair: FloatArray, hairStyle: HairStyle3D,
+        isActive: Boolean
+    ) {
         val shoe = floatArrayOf(0.10f, 0.10f, 0.12f)
 
         // 阴影
-        drawShapeAt(quad, pos.x, 0.02f, pos.z, 0.55f, 1f, 0.55f, 0f, 0f, 0f, 0f, 0.28f)
+        drawShapeAt(quad, px, 0.02f, pz, 0.6f, 1f, 0.6f, 0f, 0f, 0f, 0f, 0.28f)
 
-        // 前腿摆动角：滑铲时前腿伸出
+        // 腿摆角：滑铲前腿伸出 / 倒地平放 / 跑动摆动
         val legFront = when {
             sliding -> 72f
             falling -> 8f
@@ -302,29 +478,29 @@ class GameRenderer : GLSurfaceView.Renderer {
             else -> -swing
         }
 
-        // 双腿（肤色）
-        drawBody(cube, pos.x, pos.z, rotY, lean, -0.11f, 0.80f, 0f, legFront, -0.30f, 0.15f, 0.60f, 0.17f, skin[0], skin[1], skin[2])
-        drawBody(cube, pos.x, pos.z, rotY, lean, 0.11f, 0.80f, 0f, legBack, -0.30f, 0.15f, 0.60f, 0.17f, skin[0], skin[1], skin[2])
+        // 双腿（胶囊，肤色；髋部枢轴 0.90）
+        drawBody(legShape, px, pz, rotY, lean, -0.105f, 0.90f, 0f, legFront, -0.42f, 1f, 1f, 1f, skin[0], skin[1], skin[2])
+        drawBody(legShape, px, pz, rotY, lean, 0.105f, 0.90f, 0f, legBack, -0.42f, 1f, 1f, 1f, skin[0], skin[1], skin[2])
 
-        // 球袜（队服独立配色）
-        drawBody(cube, pos.x, pos.z, rotY, lean, -0.11f, 0.38f, 0f, legFront, 0f, 0.16f, 0.18f, 0.18f, socks[0], socks[1], socks[2])
-        drawBody(cube, pos.x, pos.z, rotY, lean, 0.11f, 0.38f, 0f, legBack, 0f, 0.16f, 0.18f, 0.18f, socks[0], socks[1], socks[2])
+        // 球袜（队服独立配色，包住踝→小腿肚）
+        drawBody(sockShape, px, pz, rotY, lean, -0.105f, 0.90f, 0f, legFront, -0.42f, 1f, 1f, 1f, socks[0], socks[1], socks[2])
+        drawBody(sockShape, px, pz, rotY, lean, 0.105f, 0.90f, 0f, legBack, -0.42f, 1f, 1f, 1f, socks[0], socks[1], socks[2])
 
         // 球鞋
-        drawBody(cube, pos.x, pos.z, rotY, lean, -0.11f, 0.18f, 0.02f, legFront, 0f, 0.15f, 0.09f, 0.24f, shoe[0], shoe[1], shoe[2])
-        drawBody(cube, pos.x, pos.z, rotY, lean, 0.11f, 0.18f, 0.02f, legBack, 0f, 0.15f, 0.09f, 0.24f, shoe[0], shoe[1], shoe[2])
+        drawBody(cube, px, pz, rotY, lean, -0.105f, 0.10f, 0.04f, legFront, 0f, 0.13f, 0.085f, 0.28f, shoe[0], shoe[1], shoe[2])
+        drawBody(cube, px, pz, rotY, lean, 0.105f, 0.10f, 0.04f, legBack, 0f, 0.13f, 0.085f, 0.28f, shoe[0], shoe[1], shoe[2])
 
-        // 球裤（队服独立配色）
-        drawBody(cube, pos.x, pos.z, rotY, lean, 0f, 0.90f, 0f, 0f, 0f, 0.34f, 0.22f, 0.24f, shorts[0], shorts[1], shorts[2])
+        // 球裤（旋转体，队服独立配色）
+        drawBody(shortsShape, px, pz, rotY, lean, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, shorts[0], shorts[1], shorts[2])
 
-        // 躯干（球衣，按队服花纹绘制）
-        drawTorso(pos.x, pos.z, rotY, lean, look.pattern, kit1, kit2)
+        // 躯干（旋转体 + 队服花纹）
+        drawTorso(px, pz, rotY, lean, pattern, kit1, kit2)
 
-        // 球袖（纯色队服用副色袖，花纹队服用主色袖）
-        drawBody(cube, pos.x, pos.z, rotY, lean, -0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, sleeveC[0], sleeveC[1], sleeveC[2])
-        drawBody(cube, pos.x, pos.z, rotY, lean, 0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, sleeveC[0], sleeveC[1], sleeveC[2])
+        // 肩垫（球形，队服主色/袖色）
+        drawBody(sphere, px, pz, rotY, lean, -0.24f, 1.58f, 0f, 0f, 0f, 0.15f, 0.12f, 0.15f, sleeve[0], sleeve[1], sleeve[2])
+        drawBody(sphere, px, pz, rotY, lean, 0.24f, 1.58f, 0f, 0f, 0f, 0.15f, 0.12f, 0.15f, sleeve[0], sleeve[1], sleeve[2])
 
-        // 双臂（肤色，反向摆动；倒地时张开）
+        // 双臂（胶囊，肤色，反向摆动；倒地张开 / 滑铲后撑）
         val armL = when {
             falling -> -35f
             sliding -> -50f
@@ -335,80 +511,74 @@ class GameRenderer : GLSurfaceView.Renderer {
             sliding -> 30f
             else -> swing * 0.8f
         }
-        drawBody(cube, pos.x, pos.z, rotY, lean, -0.29f, 1.52f, 0f, armL, -0.24f, 0.09f, 0.48f, 0.11f, skin[0], skin[1], skin[2])
-        drawBody(cube, pos.x, pos.z, rotY, lean, 0.29f, 1.52f, 0f, armR, -0.24f, 0.09f, 0.48f, 0.11f, skin[0], skin[1], skin[2])
+        drawBody(armShape, px, pz, rotY, lean, -0.245f, 1.57f, 0f, armL, -0.19f, 1f, 1f, 1f, skin[0], skin[1], skin[2])
+        drawBody(armShape, px, pz, rotY, lean, 0.245f, 1.57f, 0f, armR, -0.19f, 1f, 1f, 1f, skin[0], skin[1], skin[2])
 
-        // 头（肤色球体）
-        drawBody(sphere, pos.x, pos.z, rotY, lean, 0f, 1.74f, 0f, 0f, 0f, 0.15f, 0.165f, 0.15f, skin[0], skin[1], skin[2])
+        // 脖子
+        drawBody(neckShape, px, pz, rotY, lean, 0f, 1.66f, 0.01f, 0f, 0f, 1f, 1f, 1f, skin[0], skin[1], skin[2])
+
+        // 头（肤色椭球）
+        drawBody(headSphere, px, pz, rotY, lean, 0f, 1.84f, 0f, 0f, 0f, 0.155f, 0.17f, 0.155f, skin[0], skin[1], skin[2])
 
         // 发型（俯视角下最醒目的球星特征）
-        drawHair(look.hairStyle3D, hairC, pos.x, pos.z, rotY, lean)
+        drawHair(hairStyle, hair, px, pz, rotY, lean)
 
         // 受控球员标记
         if (isActive) {
             val bob = sin(frameTime * 4f) * 0.05f
-            drawShapeAt(markerRing, pos.x, 2.15f + bob, pos.z, 1f, 1f, 1f, 0f, 1f, 0.84f, 0.0f, 0.95f)
+            drawShapeAt(markerRing, px, 2.18f + bob, pz, 1f, 1f, 1f, 0f, 1f, 0.84f, 0.0f, 0.95f)
         }
     }
 
     /**
-     * 躯干球衣：支持 5 种队服花纹
-     * SOLID=纯色 / STRIPES=竖条纹 / HOOPS=横条纹 / HALF=左右拼色 / SASH=斜杠
+     * 躯干球衣：支持 5 种队服花纹（旋转体扇区/分段染色）
+     * SOLID=纯色 / STRIPES=竖条纹(5扇区) / HOOPS=横条纹(4段) / HALF=左右拼色 / SASH=斜杠
      */
     private fun drawTorso(
         px: Float, pz: Float, rotY: Float, lean: Float,
         pattern: KitPattern, kit1: FloatArray, kit2: FloatArray
     ) {
         when (pattern) {
+            KitPattern.SOLID ->
+                drawBody(torsoSolid, px, pz, rotY, lean, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, kit1[0], kit1[1], kit1[2])
             KitPattern.STRIPES -> {
-                // 5 条竖条纹（轻微加宽避免缝隙）
-                val w = 0.44f / 5f
                 for (i in 0 until 5) {
-                    val ox = -0.22f + w * (i + 0.5f)
                     val c = if (i % 2 == 0) kit1 else kit2
-                    drawBody(cube, px, pz, rotY, lean, ox, 1.30f, 0f, 0f, 0f, w * 1.18f, 0.60f, 0.26f, c[0], c[1], c[2])
+                    drawBody(torsoStripes[i], px, pz, rotY, lean, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, c[0], c[1], c[2])
                 }
             }
             KitPattern.HOOPS -> {
-                // 4 条横条纹
-                val bh = 0.60f / 4f
-                for (i in 0 until 4) {
-                    val oy = 1.00f + bh * (i + 0.5f)
+                for (i in torsoHoops.indices) {
                     val c = if (i % 2 == 0) kit1 else kit2
-                    drawBody(cube, px, pz, rotY, lean, 0f, oy, 0f, 0f, 0f, 0.44f, bh * 1.18f, 0.26f, c[0], c[1], c[2])
+                    drawBody(torsoHoops[i], px, pz, rotY, lean, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, c[0], c[1], c[2])
                 }
             }
             KitPattern.HALF -> {
-                drawBody(cube, px, pz, rotY, lean, -0.11f, 1.30f, 0f, 0f, 0f, 0.22f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
-                drawBody(cube, px, pz, rotY, lean, 0.11f, 1.30f, 0f, 0f, 0f, 0.22f, 0.60f, 0.26f, kit2[0], kit2[1], kit2[2])
+                drawBody(torsoHalf0, px, pz, rotY, lean, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, kit1[0], kit1[1], kit1[2])
+                drawBody(torsoHalf1, px, pz, rotY, lean, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, kit2[0], kit2[1], kit2[2])
             }
             KitPattern.SASH -> {
-                // 底色 + 阶梯状斜杠
-                drawBody(cube, px, pz, rotY, lean, 0f, 1.30f, 0f, 0f, 0f, 0.44f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
-                drawBody(cube, px, pz, rotY, lean, -0.14f, 1.44f, 0f, 0f, 0f, 0.15f, 0.16f, 0.27f, kit2[0], kit2[1], kit2[2])
-                drawBody(cube, px, pz, rotY, lean, 0f, 1.30f, 0f, 0f, 0f, 0.15f, 0.16f, 0.27f, kit2[0], kit2[1], kit2[2])
-                drawBody(cube, px, pz, rotY, lean, 0.14f, 1.16f, 0f, 0f, 0f, 0.15f, 0.16f, 0.27f, kit2[0], kit2[1], kit2[2])
+                drawBody(torsoSashBase, px, pz, rotY, lean, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, kit1[0], kit1[1], kit1[2])
+                drawBody(torsoSashWedge, px, pz, rotY, lean, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, kit2[0], kit2[1], kit2[2])
             }
-            KitPattern.SOLID ->
-                drawBody(cube, px, pz, rotY, lean, 0f, 1.30f, 0f, 0f, 0f, 0.44f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
         }
     }
 
     private fun drawHair(style: HairStyle3D, hair: FloatArray, px: Float, pz: Float, rotY: Float, lean: Float) {
         when (style) {
             HairStyle3D.BUZZ ->
-                drawBody(sphere, px, pz, rotY, lean, 0f, 1.78f, 0f, 0f, 0f, 0.155f, 0.125f, 0.155f, hair[0], hair[1], hair[2])
+                drawBody(headSphere, px, pz, rotY, lean, 0f, 1.87f, 0f, 0f, 0f, 0.16f, 0.15f, 0.16f, hair[0], hair[1], hair[2])
             HairStyle3D.SHORT ->
-                drawBody(sphere, px, pz, rotY, lean, 0f, 1.78f, 0f, 0f, 0f, 0.16f, 0.145f, 0.16f, hair[0], hair[1], hair[2])
+                drawBody(headSphere, px, pz, rotY, lean, 0f, 1.87f, 0f, 0f, 0f, 0.165f, 0.16f, 0.165f, hair[0], hair[1], hair[2])
             HairStyle3D.FLOW ->
-                drawBody(sphere, px, pz, rotY, lean, 0f, 1.77f, -0.03f, 0f, 0f, 0.17f, 0.155f, 0.20f, hair[0], hair[1], hair[2])
+                drawBody(headSphere, px, pz, rotY, lean, 0f, 1.86f, -0.03f, 0f, 0f, 0.175f, 0.17f, 0.20f, hair[0], hair[1], hair[2])
             HairStyle3D.AFRO ->
-                drawBody(sphere, px, pz, rotY, lean, 0f, 1.80f, 0f, 0f, 0f, 0.22f, 0.20f, 0.22f, hair[0], hair[1], hair[2])
+                drawBody(headSphere, px, pz, rotY, lean, 0f, 1.89f, 0f, 0f, 0f, 0.225f, 0.21f, 0.225f, hair[0], hair[1], hair[2])
             HairStyle3D.CURLY ->
-                drawBody(sphere, px, pz, rotY, lean, 0f, 1.78f, 0f, 0f, 0f, 0.175f, 0.16f, 0.175f, hair[0], hair[1], hair[2])
+                drawBody(headSphere, px, pz, rotY, lean, 0f, 1.87f, 0f, 0f, 0f, 0.18f, 0.17f, 0.18f, hair[0], hair[1], hair[2])
             HairStyle3D.PONYTAIL -> {
-                drawBody(sphere, px, pz, rotY, lean, 0f, 1.78f, 0f, 0f, 0f, 0.16f, 0.145f, 0.16f, hair[0], hair[1], hair[2])
-                drawBody(sphere, px, pz, rotY, lean, 0f, 1.58f, -0.17f, 0f, 0f, 0.07f, 0.11f, 0.07f, hair[0], hair[1], hair[2])
+                drawBody(headSphere, px, pz, rotY, lean, 0f, 1.87f, 0f, 0f, 0f, 0.165f, 0.16f, 0.165f, hair[0], hair[1], hair[2])
+                drawBody(headSphere, px, pz, rotY, lean, 0f, 1.68f, -0.17f, 0f, 0f, 0.07f, 0.11f, 0.07f, hair[0], hair[1], hair[2])
             }
             HairStyle3D.NONE -> {}
         }
@@ -425,7 +595,7 @@ class GameRenderer : GLSurfaceView.Renderer {
     // ==================== 裁判 ====================
 
     /**
-     * 裁判模型：黑色裁判服，吹哨时嘴边哨子脉冲放大，出牌时头顶举起红/黄牌
+     * 裁判：人形模型（黑色裁判服），吹哨时嘴边哨子脉冲放大，出牌时头顶举起红/黄牌
      */
     private fun drawReferee(ref: RefereeState) {
         val pos = ref.position
@@ -437,39 +607,32 @@ class GameRenderer : GLSurfaceView.Renderer {
         val swing = sin(frameTime * 6f) * 30f * amp
 
         val kit = floatArrayOf(0.07f, 0.07f, 0.08f)
-        val skin = rgb(0xFFE8B58B.toInt())
-        val hairC = rgb(0xFF2B1B12.toInt())
-        val shoe = floatArrayOf(0.10f, 0.10f, 0.12f)
-
-        // 阴影
-        drawShapeAt(quad, pos.x, 0.02f, pos.z, 0.5f, 1f, 0.5f, 0f, 0f, 0f, 0f, 0.3f)
-
-        // 腿 + 球袜 + 球鞋（裁判黑色球袜）
-        drawBody(cube, pos.x, pos.z, rotY, 0f, -0.11f, 0.80f, 0f, swing, -0.30f, 0.15f, 0.60f, 0.17f, kit[0], kit[1], kit[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.11f, 0.80f, 0f, -swing, -0.30f, 0.15f, 0.60f, 0.17f, kit[0], kit[1], kit[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0f, -0.11f, 0.38f, 0f, swing, 0f, 0.16f, 0.18f, 0.18f, kit[0], kit[1], kit[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.11f, 0.38f, 0f, -swing, 0f, 0.16f, 0.18f, 0.18f, kit[0], kit[1], kit[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0f, -0.11f, 0.18f, 0.02f, swing, 0f, 0.15f, 0.09f, 0.24f, shoe[0], shoe[1], shoe[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.11f, 0.18f, 0.02f, -swing, 0f, 0.15f, 0.09f, 0.24f, shoe[0], shoe[1], shoe[2])
-
-        // 球裤 + 躯干 + 球袖 + 双臂
-        drawBody(cube, pos.x, pos.z, rotY, 0f, 0f, 0.90f, 0f, 0f, 0f, 0.34f, 0.22f, 0.24f, kit[0], kit[1], kit[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0f, 0f, 1.30f, 0f, 0f, 0f, 0.44f, 0.60f, 0.26f, kit[0], kit[1], kit[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0f, -0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, kit[0], kit[1], kit[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.29f, 1.50f, 0f, 0f, 0f, 0.14f, 0.16f, 0.17f, kit[0], kit[1], kit[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0f, -0.29f, 1.52f, 0f, -swing * 0.8f, -0.24f, 0.09f, 0.48f, 0.11f, skin[0], skin[1], skin[2])
-        drawBody(cube, pos.x, pos.z, rotY, 0f, 0.29f, 1.52f, 0f, swing * 0.8f, -0.24f, 0.09f, 0.48f, 0.11f, skin[0], skin[1], skin[2])
-
-        // 头 + 头发
-        drawBody(sphere, pos.x, pos.z, rotY, 0f, 0f, 1.74f, 0f, 0f, 0f, 0.15f, 0.165f, 0.15f, skin[0], skin[1], skin[2])
-        drawBody(sphere, pos.x, pos.z, rotY, 0f, 0f, 1.78f, 0f, 0f, 0f, 0.16f, 0.145f, 0.16f, hairC[0], hairC[1], hairC[2])
+        drawHumanoid(
+            px = pos.x,
+            pz = pos.z,
+            rotY = rotY,
+            lean = 0f,
+            swing = swing,
+            sliding = false,
+            falling = false,
+            kit1 = kit,
+            kit2 = kit,
+            pattern = KitPattern.SOLID,
+            shorts = kit,
+            socks = kit,
+            sleeve = kit,
+            skin = rgb(0xFFE8B58B.toInt()),
+            hair = rgb(0xFF2B1B12.toInt()),
+            hairStyle = HairStyle3D.SHORT,
+            isActive = false
+        )
 
         // 哨子（吹哨时嘴边出现 + 脉冲放大）
         if (ref.whistleTimer > 0f) {
             val pulse = 1f + 0.35f * sin(frameTime * 25f)
             drawBody(
                 sphere, pos.x, pos.z, rotY, 0f,
-                0f, 1.72f, 0.17f, 0f, 0f,
+                0f, 1.82f, 0.17f, 0f, 0f,
                 0.05f * pulse, 0.05f * pulse, 0.05f * pulse,
                 0.25f, 0.25f, 0.28f
             )
@@ -484,7 +647,7 @@ class GameRenderer : GLSurfaceView.Renderer {
             }
             drawBody(
                 cube, pos.x, pos.z, rotY, 0f,
-                0.16f, 2.08f, 0.05f, 0f, 0f,
+                0.16f, 2.22f, 0.05f, 0f, 0f,
                 0.16f, 0.24f, 0.02f,
                 cardColor[0], cardColor[1], cardColor[2]
             )
@@ -691,6 +854,114 @@ class GLShape(vertexData: FloatArray) {
 }
 
 // ==================== 几何体生成 ====================
+
+/**
+ * 旋转体（Lathe）网格：stations = (y, rx, rz) 自下而上，椭圆截面；
+ * 支持 [startDeg, endDeg] 部分角度（竖条纹扇区 / 左右拼色半边）；
+ * 法线含轮廓斜率（锥度光照正确）；可选端盖。
+ */
+private fun buildRevolution(
+    stations: List<Triple<Float, Float, Float>>,
+    radialSegments: Int = 14,
+    startDeg: Float = 0f,
+    endDeg: Float = 360f,
+    capTop: Boolean = true,
+    capBottom: Boolean = true
+): FloatArray {
+    val out = ArrayList<Float>(stations.size * (radialSegments + 1) * 36)
+    val n = stations.size
+    if (n < 2) return FloatArray(0)
+    val a0 = Math.toRadians(startDeg.toDouble())
+    val a1 = Math.toRadians(endDeg.toDouble())
+
+    // 每层环：位置 + 斜率法线
+    val ringPX = ArrayList<FloatArray>(n)
+    val ringPZ = ArrayList<FloatArray>(n)
+    val ringNX = ArrayList<FloatArray>(n)
+    val ringNY = ArrayList<FloatArray>(n)
+    val ringNZ = ArrayList<FloatArray>(n)
+    for (i in 0 until n) {
+        val y = stations[i].first
+        val rx = stations[i].second
+        val rz = stations[i].third
+        val iPrev = if (i == 0) 0 else i - 1
+        val iNext = if (i == n - 1) n - 1 else i + 1
+        val dy = stations[iNext].first - stations[iPrev].first
+        val dr = stations[iNext].second - stations[iPrev].second
+        val slope = if (kotlin.math.abs(dy) < 0.0001f) 0f else dr / dy
+        val px = FloatArray(radialSegments + 1)
+        val pz = FloatArray(radialSegments + 1)
+        val nx = FloatArray(radialSegments + 1)
+        val ny = FloatArray(radialSegments + 1)
+        val nz = FloatArray(radialSegments + 1)
+        for (j in 0..radialSegments) {
+            val a = a0 + (a1 - a0) * j / radialSegments
+            val ca = cos(a).toFloat()
+            val sa = sin(a).toFloat()
+            px[j] = ca * rx
+            pz[j] = sa * rz
+            var vx = ca
+            var vy = -slope
+            var vz = sa
+            val len = kotlin.math.sqrt(vx * vx + vy * vy + vz * vz)
+            nx[j] = vx / len
+            ny[j] = vy / len
+            nz[j] = vz / len
+        }
+        ringPX.add(px)
+        ringPZ.add(pz)
+        ringNX.add(nx)
+        ringNY.add(ny)
+        ringNZ.add(nz)
+    }
+
+    // 侧面（每层之间连成四边形 → 两个三角）
+    for (i in 0 until n - 1) {
+        val y0 = stations[i].first
+        val y1 = stations[i + 1].first
+        for (j in 0 until radialSegments) {
+            out.addAll(
+                listOf(
+                    ringPX[i][j], y0, ringPZ[i][j], ringNX[i][j], ringNY[i][j], ringNZ[i][j],
+                    ringPX[i + 1][j], y1, ringPZ[i + 1][j], ringNX[i + 1][j], ringNY[i + 1][j], ringNZ[i + 1][j],
+                    ringPX[i + 1][j + 1], y1, ringPZ[i + 1][j + 1], ringNX[i + 1][j + 1], ringNY[i + 1][j + 1], ringNZ[i + 1][j + 1],
+                    ringPX[i][j], y0, ringPZ[i][j], ringNX[i][j], ringNY[i][j], ringNZ[i][j],
+                    ringPX[i + 1][j + 1], y1, ringPZ[i + 1][j + 1], ringNX[i + 1][j + 1], ringNY[i + 1][j + 1], ringNZ[i + 1][j + 1],
+                    ringPX[i][j + 1], y0, ringPZ[i][j + 1], ringNX[i][j + 1], ringNY[i][j + 1], ringNZ[i][j + 1]
+                )
+            )
+        }
+    }
+
+    // 底盖（扇形收拢到中轴）
+    if (capBottom && stations.first().second > 0.001f) {
+        val y = stations.first().first
+        for (j in 0 until radialSegments) {
+            out.addAll(
+                listOf(
+                    0f, y, 0f, 0f, -1f, 0f,
+                    ringPX[0][j + 1], y, ringPZ[0][j + 1], 0f, -1f, 0f,
+                    ringPX[0][j], y, ringPZ[0][j], 0f, -1f, 0f
+                )
+            )
+        }
+    }
+    // 顶盖
+    if (capTop && stations.last().second > 0.001f) {
+        val y = stations.last().first
+        for (j in 0 until radialSegments) {
+            out.addAll(
+                listOf(
+                    0f, y, 0f, 0f, 1f, 0f,
+                    ringPX[n - 1][j], y, ringPZ[n - 1][j], 0f, 1f, 0f,
+                    ringPX[n - 1][j + 1], y, ringPZ[n - 1][j + 1], 0f, 1f, 0f
+                )
+            )
+        }
+    }
+
+    return out.toFloatArray()
+}
 
 /** 单位球（半径 1，中心原点），带法线 */
 private fun buildSphere(latBands: Int = 8, lonBands: Int = 12): FloatArray {
