@@ -58,6 +58,10 @@ import kotlin.math.abs
  * 比赛屏幕：真实 OpenGL 3D 场景（最佳球会 × 实况足球 风格 HUD）
  * 顶部记分栏 + 跳过/暂停/换人圆键 + 底部雷达小地图 + 半透明圆形情境按键
  * 招牌球星按角色卡落在对应位置槽（同一球星不同球队不同职责，如阿什拉夫在大巴黎踢边锋）
+ *
+ * 抽搐修复：比赛模拟由 GL 渲染线程逐帧驱动（GameGLSurfaceView.onFrameUpdate），
+ * 先 gameEngine.update(dt) 再绘制 → 模拟与画面同帧同相；
+ * 旧方案（协程 delay(16) 固定步长 vs 渲染线程自由节拍）的不同步抖动彻底移除。
  */
 @Composable
 fun MatchScreen(
@@ -164,48 +168,7 @@ fun MatchScreen(
         }
     }
 
-    // 引擎实时模拟（~60fps）+ 推送渲染数据；跳过时每帧快进 48 步直到终场
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(16L)
-            if (!isPaused && !isFinished) {
-                if (skipping) {
-                    repeat(48) { gameEngine.update(0.016f) }
-                    matchTime += 5f * 48
-                    if (matchTime >= 2700f) {
-                        if (currentHalf == 1) {
-                            currentHalf = 2
-                            matchTime = 0f
-                        } else {
-                            isFinished = true
-                            skipping = false
-                        }
-                    }
-                } else {
-                    gameEngine.update(0.016f)
-                }
-                glView?.updateGameData(
-                    homePlayers = gameEngine.homePlayers,
-                    awayPlayers = gameEngine.awayPlayers,
-                    ballPosition = gameEngine.ballPosition,
-                    ballHeight = gameEngine.ballHeight,
-                    activePlayerIndex = gameEngine.homePlayers.indexOf(gameEngine.activePlayer),
-                    homeLooks = homeLooks,
-                    awayLooks = awayLooks,
-                    referee = gameEngine.referee
-                )
-                hasBall = gameEngine.ballOwner?.isPlayerControlled == true
-                actionMode = gameEngine.currentActionMode()
-                showClearance = gameEngine.canClear()
-                val owner = gameEngine.ballOwner
-                defending = owner == null || owner.teamSide != gameEngine.playerSide
-                skipAvailable = abs(homeScore - awayScore) >= 3
-                radarFrame++
-            }
-        }
-    }
-
-    // 比赛时钟（50 倍加速：+5s 游戏时间 / 100ms；跳过时由模拟循环接管）
+    // 比赛时钟（50 倍加速：+5s 游戏时间 / 100ms；跳过时由渲染回调接管）
     LaunchedEffect(isPaused, isFinished) {
         while (matchTime < 2700f) {
             delay(100L)
@@ -226,10 +189,49 @@ fun MatchScreen(
             .fillMaxSize()
             .background(Color(0xFF2E7D32))
     ) {
-        // OpenGL 3D 场景
+        // OpenGL 3D 场景（比赛模拟由渲染线程逐帧驱动：先 update 后 draw，同帧同相，消除抽搐）
         AndroidView(
             factory = { ctx ->
-                GameGLSurfaceView(ctx).also { view -> glView = view }
+                GameGLSurfaceView(ctx).also { view ->
+                    glView = view
+                    view.onFrameUpdate = { dt ->
+                        if (!isPaused && !isFinished) {
+                            if (skipping) {
+                                repeat(48) { gameEngine.update(0.016f) }
+                                matchTime += 5f * 48
+                                if (matchTime >= 2700f) {
+                                    if (currentHalf == 1) {
+                                        currentHalf = 2
+                                        matchTime = 0f
+                                    } else {
+                                        isFinished = true
+                                        skipping = false
+                                    }
+                                }
+                            } else {
+                                gameEngine.update(dt)
+                            }
+                            // 每帧推送渲染数据（引用拷贝，代价极低）
+                            view.updateGameData(
+                                homePlayers = gameEngine.homePlayers,
+                                awayPlayers = gameEngine.awayPlayers,
+                                ballPosition = gameEngine.ballPosition,
+                                ballHeight = gameEngine.ballHeight,
+                                activePlayerIndex = gameEngine.homePlayers.indexOf(gameEngine.activePlayer),
+                                homeLooks = homeLooks,
+                                awayLooks = awayLooks,
+                                referee = gameEngine.referee
+                            )
+                            hasBall = gameEngine.ballOwner?.isPlayerControlled == true
+                            actionMode = gameEngine.currentActionMode()
+                            showClearance = gameEngine.canClear()
+                            val owner = gameEngine.ballOwner
+                            defending = owner == null || owner.teamSide != gameEngine.playerSide
+                            skipAvailable = abs(homeScore - awayScore) >= 3
+                            radarFrame++
+                        }
+                    }
+                }
             },
             modifier = Modifier.fillMaxSize()
         )
