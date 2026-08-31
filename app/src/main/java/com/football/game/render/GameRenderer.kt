@@ -24,6 +24,12 @@ import kotlin.math.sin
  * OpenGL ES 2.0：真实关节式球员模型（头/发型/躯干/手臂/腿/球袜/球鞋），
  * 队服系统（竖条纹/横条纹/拼色/斜杠 + 独立球裤球袜配色），
  * 裁判模型（吹哨 + 红黄牌），滑铲/倒地姿态，条纹草皮 + 白线球场 + 球门
+ *
+ * 抽搐修复：
+ * 1. onDrawFrame 先用真实帧间隔调用 frameCallback（MatchScreen 在此推进模拟），
+ *    随后立即绘制 → 模拟与画面同帧同相，彻底消除"模拟/渲染不同步抖动"
+ * 2. 帧率无关平滑：相机缓动、肢体摆动相位均按真实帧间隔推进，
+ *    60Hz / 90Hz / 120Hz 屏幕手感一致
  */
 class GameRenderer : GLSurfaceView.Renderer {
 
@@ -81,6 +87,13 @@ class GameRenderer : GLSurfaceView.Renderer {
     private var ready = false
     private var frameTime = 0f
 
+    /**
+     * 每帧模拟回调：绘制前调用，参数 = 真实帧间隔（秒）。
+     * MatchScreen 借此推进 gameEngine.update(dt)（渲染线程驱动模拟）。
+     */
+    var frameCallback: ((Float) -> Unit)? = null
+    private var lastFrameNanos = 0L
+
     // ==================== 游戏数据 ====================
 
     private var homePlayers: List<Player> = emptyList()
@@ -121,16 +134,28 @@ class GameRenderer : GLSurfaceView.Renderer {
 
     override fun onDrawFrame(gl: GL10?) {
         if (!ready) return
+
+        // 真实帧间隔（秒）
+        val nowNanos = System.nanoTime()
+        val frameDt = if (lastFrameNanos == 0L) 0.016f
+                      else ((nowNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
+        lastFrameNanos = nowNanos
+        frameTime += frameDt
+
+        // 先推进模拟（渲染线程驱动，与绘制同帧同相），再画本帧 → 数据零延迟
+        frameCallback?.invoke(frameDt)
+
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glUseProgram(program.id)
         GLES20.glUniform3f(program.uLight, 0.4f, -0.85f, -0.35f)
 
-        // 相机跟随球
-        camTargetX = lerp(camTargetX, ballPosition.x, 0.08f)
-        camTargetZ = lerp(camTargetZ, ballPosition.z, 0.08f)
-        camPosX = lerp(camPosX, camTargetX * 0.85f, 0.08f)
-        camPosY = lerp(camPosY, 36f, 0.08f)
-        camPosZ = lerp(camPosZ, camTargetZ - 30f, 0.08f)
+        // 相机跟随球（帧率无关平滑：1 - e^(-k·dt)）
+        val camLerp = 1f - kotlin.math.exp(-6f * frameDt)
+        camTargetX = lerp(camTargetX, ballPosition.x, camLerp)
+        camTargetZ = lerp(camTargetZ, ballPosition.z, camLerp)
+        camPosX = lerp(camPosX, camTargetX * 0.85f, camLerp)
+        camPosY = lerp(camPosY, 36f, camLerp)
+        camPosZ = lerp(camPosZ, camTargetZ - 30f, camLerp)
         Matrix.setLookAtM(
             viewMatrix, 0,
             camPosX, camPosY, camPosZ,
@@ -143,8 +168,6 @@ class GameRenderer : GLSurfaceView.Renderer {
         drawAllPlayers()
         refereeState?.let { drawReferee(it) }
         drawBall()
-
-        frameTime += 0.016f
     }
 
     // ==================== 球场 ====================
@@ -356,8 +379,7 @@ class GameRenderer : GLSurfaceView.Renderer {
                 }
             }
             KitPattern.HALF -> {
-                drawBody(cube, px, pz, rotY, lean, -0.11f, 1.30f, 0f, 0f, 0f, 0.22f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
-                drawBody(cube, px, pz, rotY, lean, 0.11f, 1.30f, 0f, 0f, 0f, 0.22f, 0.60f, 0.26f, kit2[0], kit2[1], kit2[2])
+                drawBody(cube, px, pz, rotY, lean, -0.11f, 1.30f, 0f, 0f, 0f, 0.22f, 0.60f, 0.26f, kit1[0], kit1[1], kit2[0].let { kit2[0] })
             }
             KitPattern.SASH -> {
                 // 底色 + 阶梯状斜杠
@@ -546,7 +568,7 @@ class GameRenderer : GLSurfaceView.Renderer {
     // ==================== 数据接口 ====================
 
     /**
-     * 设置游戏数据（每帧由 UI 线程调用）
+     * 设置游戏数据（每帧由渲染回调调用）
      */
     fun setGameData(
         homePlayers: List<Player>,
