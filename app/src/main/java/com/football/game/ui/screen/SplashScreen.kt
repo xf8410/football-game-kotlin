@@ -1,5 +1,6 @@
 package com.football.game.ui.screen
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.animation.core.animateFloatAsState
@@ -40,9 +41,9 @@ import kotlinx.coroutines.delay
 /**
  * 启动加载页（软件进入时显示，2.4 秒后自动进入主菜单，点击可跳过）
  *
- * 自定义皮肤：把图片上传到仓库 app/src/main/assets/splash.jpg（或 .png/.webp），
- * 下一次构建自动启用；右下角的"清言·AI生成"水印会被同色米色块无缝盖掉。
- * 没有 assets 图片时显示内置的米色程序化启动页。
+ * 自定义皮肤：把任意图片上传到仓库 app/src/main/assets/ 目录（文件名随意，
+ * 推荐 splash.jpg），下一次构建自动启用；右下角的"清言·AI生成"水印会被
+ * 同色米色块无缝盖掉。没有 assets 图片时显示内置的米色程序化启动页。
  */
 private val SplashBeige = Color(0xFFE9DFC1)
 
@@ -62,20 +63,7 @@ fun SplashScreen(
     )
 
     LaunchedEffect(Unit) {
-        // 依次尝试 assets 里的自定义启动图
-        for (name in listOf("splash.jpg", "splash.png", "splash.jpeg", "splash.webp")) {
-            try {
-                context.assets.open(name).use { stream ->
-                    val bmp = BitmapFactory.decodeStream(stream)
-                    if (bmp != null) {
-                        splashBitmap = bmp
-                        break
-                    }
-                }
-            } catch (_: Throwable) {
-                // 没有该文件 → 继续尝试下一个
-            }
-        }
+        splashBitmap = loadSplashBitmap(context)
         appeared = true
         delay(2400L)
         onDone()
@@ -164,5 +152,40 @@ fun SplashScreen(
                     .padding(bottom = 18.dp)
             )
         }
+    }
+}
+
+/**
+ * 从 assets 加载自定义启动图：
+ * 1) 固定名优先（splash.jpg/png/jpeg/webp）
+ * 2) 其次扫描 assets 根目录里任意图片文件（用户上传时不用改文件名）
+ */
+private fun loadSplashBitmap(context: Context): Bitmap? {
+    for (name in listOf("splash.jpg", "splash.png", "splash.jpeg", "splash.webp")) {
+        decodeAsset(context, name)?.let { return it }
+    }
+    val rootFiles = try {
+        context.assets.list("")?.sorted() ?: emptyList()
+    } catch (_: Throwable) {
+        emptyList()
+    }
+    for (name in rootFiles) {
+        val lower = name.lowercase()
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
+            lower.endsWith(".png") || lower.endsWith(".webp")
+        ) {
+            decodeAsset(context, name)?.let { return it }
+        }
+    }
+    return null
+}
+
+/** 读取单个 asset 图片（不存在/解码失败返回 null，不用 break） */
+private fun decodeAsset(context: Context, name: String): Bitmap? {
+    return try {
+        val bmp = context.assets.open(name).use { BitmapFactory.decodeStream(it) }
+        bmp
+    } catch (_: Throwable) {
+        null
     }
 }
