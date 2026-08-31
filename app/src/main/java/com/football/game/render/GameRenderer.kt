@@ -379,7 +379,8 @@ class GameRenderer : GLSurfaceView.Renderer {
                 }
             }
             KitPattern.HALF -> {
-                drawBody(cube, px, pz, rotY, lean, -0.11f, 1.30f, 0f, 0f, 0f, 0.22f, 0.60f, 0.26f, kit1[0], kit1[1], kit2[0].let { kit2[0] })
+                drawBody(cube, px, pz, rotY, lean, -0.11f, 1.30f, 0f, 0f, 0f, 0.22f, 0.60f, 0.26f, kit1[0], kit1[1], kit1[2])
+                drawBody(cube, px, pz, rotY, lean, 0.11f, 1.30f, 0f, 0f, 0f, 0.22f, 0.60f, 0.26f, kit2[0], kit2[1], kit2[2])
             }
             KitPattern.SASH -> {
                 // 底色 + 阶梯状斜杠
