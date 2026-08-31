@@ -6,16 +6,14 @@ plugins {
 
 android {
     namespace = "com.football.game"
-    // minSdk 对齐 uma-juece-ramen（可正常安装的已知良好配置）
     compileSdk = 34
 
     defaultConfig {
-        // 包名全新：绕开安装器对旧包名的任何记录
         applicationId = "com.footballgame.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.0.6"
+        versionCode = 8
+        versionName = "1.0.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -23,7 +21,7 @@ android {
         }
     }
 
-    // 输出文件名带版本号：football-1.0.6-release.apk / football-1.0.6-debug.apk
+    // 输出文件名带版本号：football-1.0.7-release.apk / football-1.0.7-debug.apk
     applicationVariants.all {
         outputs.all {
             val variantOutput = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
