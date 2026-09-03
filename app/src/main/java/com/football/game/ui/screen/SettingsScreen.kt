@@ -42,6 +42,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -339,7 +340,7 @@ fun SettingsScreen(
             )
 
             Text(
-                text = "足球游戏 Kotlin 版 v1.0.10",
+                text = "足球游戏 Kotlin 版 v1.0.11",
                 fontSize = 12.sp,
                 color = Color(0xFFA5D6A7),
                 modifier = Modifier
