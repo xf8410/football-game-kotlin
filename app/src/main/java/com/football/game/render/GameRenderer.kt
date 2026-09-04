@@ -31,6 +31,7 @@ import kotlin.math.sin
  * 场景升级：悬浮草皮 → 完整体育场（顶点色单绘制调用，性能无压力）
  * 抽搐修复（保留）：onDrawFrame 先用真实帧间隔调用 frameCallback（MatchScreen 在此推进模拟），
  * 随后立即绘制 → 模拟与画面同帧同相；相机/动画帧率无关平滑
+ * 提亮修复：草皮条纹/外围草/看台/顶棚/外围地面全部提亮，环境光 0.62→0.80（解决整体画面太暗）
  */
 class GameRenderer : GLSurfaceView.Renderer {
 
@@ -62,7 +63,7 @@ class GameRenderer : GLSurfaceView.Renderer {
         void main() {
             vec3 n = normalize(vNormal);
             float diff = max(dot(n, normalize(uLightDir)), 0.0);
-            float lambert = 0.62 + 0.38 * diff;
+            float lambert = 0.80 + 0.32 * diff;
             gl_FragColor = vec4(vColor.rgb * lambert, vColor.a);
         }
     """
@@ -145,7 +146,7 @@ class GameRenderer : GLSurfaceView.Renderer {
     )
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        GLES20.glClearColor(0.05f, 0.07f, 0.09f, 1.0f)
+        GLES20.glClearColor(0.10f, 0.14f, 0.20f, 1.0f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
@@ -360,7 +361,7 @@ class GameRenderer : GLSurfaceView.Renderer {
     /**
      * 生成体育场网格（位置+法线 / 顶点色 两个缓冲）。
      * 布局：草皮边缘 → LED 广告板（3m 一段紫白相间）→ 12 排阶梯看台（每排 ~140 观众，
-     * 随机球衣色 + 微后仰）→ 顶棚 + 后墙；四角角旗 + 泛光灯塔；最外围深色地面。
+     * 随机球衣色 + 微后仰）→ 顶棚 + 后墙；四角角旗 + 泛光灯塔；最外围地面。
      */
     private fun buildStadiumMesh(): Pair<FloatArray, FloatArray> {
         val pos = ArrayList<Float>(1 shl 20)
@@ -389,15 +390,15 @@ class GameRenderer : GLSurfaceView.Renderer {
             face(floatArrayOf(cx - hx, cy - hy, cz - hz), floatArrayOf(cx + hx, cy - hy, cz - hz), floatArrayOf(cx + hx, cy - hy, cz + hz), floatArrayOf(cx - hx, cy - hy, cz + hz), floatArrayOf(0f, -1f, 0f), r, g, b)
         }
 
-        // ---- 外围地面（深色混凝土）----
-        box(0f, -0.07f, 0f, 190f, 0.14f, 230f, 0.10f, 0.10f, 0.11f)
+        // ---- 外围地面（混凝土，提亮）----
+        box(0f, -0.07f, 0f, 190f, 0.14f, 230f, 0.17f, 0.17f, 0.19f)
 
-        // ---- LED 广告板（绕场一圈，3m 一段交替色）----
+        // ---- LED 广告板（绕场一圈，3m 一段交替色，提亮）----
         val boardCols = arrayOf(
-            floatArrayOf(0.60f, 0.18f, 0.82f),
-            floatArrayOf(0.94f, 0.94f, 0.97f),
-            floatArrayOf(0.13f, 0.14f, 0.50f),
-            floatArrayOf(0.94f, 0.94f, 0.97f)
+            floatArrayOf(0.70f, 0.24f, 0.92f),
+            floatArrayOf(0.97f, 0.97f, 1.00f),
+            floatArrayOf(0.18f, 0.20f, 0.62f),
+            floatArrayOf(0.97f, 0.97f, 1.00f)
         )
         var bi = 0
         var z = -54f
@@ -423,16 +424,16 @@ class GameRenderer : GLSurfaceView.Renderer {
             bi++
         }
 
-        // ---- 看台（四面：12 排阶梯 + 观众 + 顶棚 + 后墙）----
+        // ---- 看台（四面：12 排阶梯 + 观众 + 顶棚 + 后墙，整体提亮）----
         val rows = 12
         val stepD = 1.15f
         val stepH = 0.55f
         val crowdPalette = arrayOf(
-            floatArrayOf(0.90f, 0.90f, 0.92f), floatArrayOf(0.85f, 0.25f, 0.25f),
-            floatArrayOf(0.25f, 0.35f, 0.80f), floatArrayOf(0.95f, 0.75f, 0.20f),
-            floatArrayOf(0.20f, 0.20f, 0.22f), floatArrayOf(0.55f, 0.30f, 0.15f),
-            floatArrayOf(0.90f, 0.60f, 0.70f), floatArrayOf(0.30f, 0.60f, 0.35f),
-            floatArrayOf(0.80f, 0.55f, 0.30f), floatArrayOf(0.45f, 0.45f, 0.50f)
+            floatArrayOf(0.94f, 0.94f, 0.96f), floatArrayOf(0.92f, 0.32f, 0.32f),
+            floatArrayOf(0.32f, 0.42f, 0.88f), floatArrayOf(0.98f, 0.80f, 0.26f),
+            floatArrayOf(0.30f, 0.30f, 0.33f), floatArrayOf(0.62f, 0.38f, 0.22f),
+            floatArrayOf(0.94f, 0.66f, 0.76f), floatArrayOf(0.38f, 0.68f, 0.42f),
+            floatArrayOf(0.86f, 0.62f, 0.38f), floatArrayOf(0.52f, 0.52f, 0.58f)
         )
 
         fun sideStand(sign: Float) {
@@ -440,7 +441,7 @@ class GameRenderer : GLSurfaceView.Renderer {
                 val frontX = sign * (38f + i * stepD)
                 val baseY = 1.2f + i * stepH
                 val cx = frontX + sign * stepD / 2f
-                box(cx, baseY + 0.35f, 0f, stepD, 0.7f, 112f, 0.26f, 0.27f, 0.30f)
+                box(cx, baseY + 0.35f, 0f, stepD, 0.7f, 112f, 0.35f, 0.36f, 0.40f)
                 var p = -54f
                 while (p < 54f) {
                     val c = crowdPalette[rnd.nextInt(crowdPalette.size)]
@@ -454,8 +455,8 @@ class GameRenderer : GLSurfaceView.Renderer {
                     p += 0.78f
                 }
             }
-            box(sign * (38f + rows * stepD + 1.4f), 1.2f + rows * stepH + 3.0f, 0f, 8f, 0.35f, 116f, 0.55f, 0.56f, 0.60f)
-            box(sign * (38f + rows * stepD + 0.55f), (1.2f + rows * stepH) / 2f + 0.6f, 0f, 1.1f, 1.2f + rows * stepH + 1.2f, 116f, 0.18f, 0.18f, 0.20f)
+            box(sign * (38f + rows * stepD + 1.4f), 1.2f + rows * stepH + 3.0f, 0f, 8f, 0.35f, 116f, 0.62f, 0.63f, 0.67f)
+            box(sign * (38f + rows * stepD + 0.55f), (1.2f + rows * stepH) / 2f + 0.6f, 0f, 1.1f, 1.2f + rows * stepH + 1.2f, 116f, 0.25f, 0.26f, 0.29f)
         }
 
         fun endStand(sign: Float) {
@@ -463,7 +464,7 @@ class GameRenderer : GLSurfaceView.Renderer {
                 val frontZ = sign * (57f + i * stepD)
                 val baseY = 1.2f + i * stepH
                 val cz = frontZ + sign * stepD / 2f
-                box(0f, baseY + 0.35f, cz, 80f, 0.7f, stepD, 0.26f, 0.27f, 0.30f)
+                box(0f, baseY + 0.35f, cz, 80f, 0.7f, stepD, 0.35f, 0.36f, 0.40f)
                 var p = -39f
                 while (p < 39f) {
                     val c = crowdPalette[rnd.nextInt(crowdPalette.size)]
@@ -477,8 +478,8 @@ class GameRenderer : GLSurfaceView.Renderer {
                     p += 0.78f
                 }
             }
-            box(0f, 1.2f + rows * stepH + 3.0f, sign * (57f + rows * stepD + 1.4f), 84f, 0.35f, 8f, 0.55f, 0.56f, 0.60f)
-            box(0f, (1.2f + rows * stepH) / 2f + 0.6f, sign * (57f + rows * stepD + 0.55f), 84f, 1.2f + rows * stepH + 1.2f, 1.1f, 0.18f, 0.18f, 0.20f)
+            box(0f, 1.2f + rows * stepH + 3.0f, sign * (57f + rows * stepD + 1.4f), 84f, 0.35f, 8f, 0.62f, 0.63f, 0.67f)
+            box(0f, (1.2f + rows * stepH) / 2f + 0.6f, sign * (57f + rows * stepD + 0.55f), 84f, 1.2f + rows * stepH + 1.2f, 1.1f, 0.25f, 0.26f, 0.29f)
         }
 
         sideStand(1f)
@@ -565,18 +566,18 @@ class GameRenderer : GLSurfaceView.Renderer {
         val halfW = GameState.FIELD_WIDTH / 2
         val halfL = GameState.FIELD_LENGTH / 2
 
-        // 外围草皮（延伸到看台脚下）
-        drawShapeAt(quad, 0f, -0.03f, 0f, 150f, 1f, 190f, 0f, 0.10f, 0.30f, 0.16f)
+        // 外围草皮（延伸到看台脚下，提亮）
+        drawShapeAt(quad, 0f, -0.03f, 0f, 150f, 1f, 190f, 0f, 0.22f, 0.52f, 0.28f)
 
-        // 割草条纹（14 条细条纹）
+        // 割草条纹（14 条细条纹，提亮 ~85%）
         val stripes = 14
         val stripeLen = GameState.FIELD_LENGTH / stripes
         for (i in 0 until stripes) {
             val zc = -halfL + stripeLen * (i + 0.5f)
             if (i % 2 == 0) {
-                drawShapeAt(quad, 0f, 0f, zc, GameState.FIELD_WIDTH, 1f, stripeLen, 0f, 0.16f, 0.55f, 0.26f)
+                drawShapeAt(quad, 0f, 0f, zc, GameState.FIELD_WIDTH, 1f, stripeLen, 0f, 0.30f, 0.72f, 0.35f)
             } else {
-                drawShapeAt(quad, 0f, 0f, zc, GameState.FIELD_WIDTH, 1f, stripeLen, 0f, 0.14f, 0.50f, 0.23f)
+                drawShapeAt(quad, 0f, 0f, zc, GameState.FIELD_WIDTH, 1f, stripeLen, 0f, 0.27f, 0.67f, 0.32f)
             }
         }
 
