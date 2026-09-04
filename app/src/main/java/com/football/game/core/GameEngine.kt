@@ -42,12 +42,13 @@ private data class SetPieceData(
  * 游戏引擎核心类
  *
  * 实时模拟：球员 AI（压迫/抢断/铲球 + 无球跑位系统）、球的物理、
- * 裁判（对角线跟跑/鸣哨/出牌）、任意球/点球/界外球/球门球/角球、有利进攻规则。
- * 规则判定基于 IFAB《足球竞赛规则》Law 12 / Law 14 / Law 15-17。
+ * 裁判（对角线跟跑/鸣哨/出牌）、任意球/点球/界外球/球门球/角球、有利进攻规则、越位（简化）。
+ * 规则判定基于 IFAB《足球竞赛规则》Law 11 / Law 12 / Law 14 / Law 15-17。
  *
  * 对标《足球在线4》"核心比赛体验再次进化"：
  * 跑位分离力 v2（防扎堆）、传球通道拦截评分（少刀山球）、受压传球失误、
- * 挑传高弧线、接球转向、门将出击时机收紧、前锋躲避门将、跳起躲人避障。
+ * 挑传高弧线、传中+头球冲顶（空位头球/争顶/二点球保护）、接球转向、
+ * 门将出击时机收紧、前锋躲避门将、跳起躲人避障、被过踉跄反馈。
  */
 class GameEngine(
     val match: Match,
@@ -143,6 +144,11 @@ class GameEngine(
     private var advantageSpot: Vector3? = null
     private var advantageSide: GameState.TeamSide? = null
 
+    // ===== 越位（简化版 IFAB Law 11）=====
+    private val offsideFlagged = HashSet<Player>()
+    private var offsideSide: GameState.TeamSide? = null
+    private var offsideTimer = 0f
+
     /** 射门偏出标记（底线出界时横幅"射门偏出"用） */
     private var lastShotMissed = false
 
@@ -235,6 +241,15 @@ class GameEngine(
             }
         }
 
+        // ===== 越位旗有效期（6 秒未触发自动解除）=====
+        if (offsideTimer > 0f) {
+            offsideTimer -= delta
+            if (offsideTimer <= 0f) {
+                offsideFlagged.clear()
+                offsideSide = null
+            }
+        }
+
         // 倒地/滑铲状态推进
         for (p in allActive()) {
             p.tackleCooldown = (p.tackleCooldown - delta).coerceAtLeast(0f)
@@ -314,6 +329,14 @@ class GameEngine(
             p.velocity = Vector3.ZERO
         }
         if (ballOwner == p) lastTouch = p
+
+        // 高球落点：操控球员自动争顶（头球冲顶/解围）
+        if (ballOwner == null && ballHeight in 1.4f..2.5f &&
+            ballHeightVelocity < 2f &&
+            p.position.distanceTo(ballPosition) < 1.8f
+        ) {
+            tryHeader(p)
+        }
     }
 
     private fun updateAIPlayers(delta: Float) {
@@ -388,20 +411,123 @@ class GameEngine(
     }
 
     private fun tryPossession(p: Player) {
-        if (pickupCooldown > 0f || ballHeight > 1.4f) return
+        if (pickupCooldown > 0f) return
         // 门将持球受保护（前锋躲避门将）：不逼抢不抢断门将
         val cur = ballOwner
         if (cur != null && cur.isGoalkeeper && cur.teamSide != p.teamSide) return
         val dx = p.position.x - ballPosition.x
         val dz = p.position.z - ballPosition.z
-        if (dx * dx + dz * dz < 1.2f * 1.2f) {
-            assignBallOwner(p)
+        val d2 = dx * dx + dz * dz
+        if (ballHeight <= 1.4f) {
+            if (d2 < 1.2f * 1.2f) assignBallOwner(p)
+        } else if (ballHeight <= 2.5f && d2 < 1.6f * 1.6f) {
+            tryHeader(p)   // 高球落点：争顶头球
         }
     }
 
-    /** 持球权转移（同步 hasBall / 控球保护时间 / 接传球射门窗口 / 控制权自动切换） */
+    /**
+     * 头球（简化头球系统）：高球落点争顶。
+     * - 空位头球（附近无对手）大概率成功 —— 空位头球结果符合预期
+     * - 进攻三区头球 = 头球冲顶攻门；其余 = 向前场开阔区顶出（解围/摆渡）
+     * - 二点球保护：顶出后 0.45s 内无人可再拿球，攻防双方公平争抢二点
+     */
+    private fun tryHeader(p: Player) {
+        if (ballOwner != null) return
+        if (ballHeightVelocity >= 2f) return   // 上升期不顶，等球下落
+
+        // 争顶判定：空位头球成功率高；有人贴身则 55% + 位置优势
+        val opponents = (if (p.teamSide == GameState.TeamSide.HOME) awayPlayers else homePlayers)
+            .filter { !it.sentOff && !it.isGoalkeeper }
+        val rivals = opponents.filter {
+            it !== p && it.fallTimer <= 0f && it.slideTimer <= 0f &&
+                it.position.distanceTo(ballPosition) < 2.2f
+        }
+        val nearestRivalDist = rivals.minOfOrNull { it.position.distanceTo(ballPosition) } ?: 99f
+        val myDist = p.position.distanceTo(ballPosition)
+        val win = rivals.isEmpty() ||
+            Random.nextFloat() < 0.55f ||
+            myDist < nearestRivalDist - 0.5f
+        if (!win) return
+
+        val attackSign = if (p.teamSide == GameState.TeamSide.HOME) 1f else -1f
+        val goalZ = attackSign * GameState.FIELD_LENGTH / 2
+        val distToGoal = kotlin.math.abs(goalZ - p.position.z)
+
+        if (attackSign * p.position.z > 0f && distToGoal < 22f) {
+            // 头球冲顶攻门
+            val dir = Vector3(
+                Random.nextFloat() * 6f - 3f - p.position.x * 0.06f,
+                0f,
+                goalZ - p.position.z
+            ).normalized()
+            ballVelocity = dir * (GameState.SHOT_SPEED * 0.72f)
+            ballHeightVelocity = 0.8f
+            if (p.teamSide == GameState.TeamSide.HOME) stats.homeShots++ else stats.awayShots++
+            lastShotMissed = true
+            onBanner?.invoke("头球冲顶！")
+        } else {
+            // 头球解围 / 摆渡：顶向前场开阔区
+            val dir = Vector3(
+                p.position.x * 0.3f + Random.nextFloat() * 16f - 8f,
+                0f,
+                attackSign
+            ).normalized()
+            ballVelocity = dir * (GameState.PASS_SPEED * 1.1f)
+            ballHeightVelocity = 2.6f
+        }
+        lastTouch = p
+        pickupCooldown = 0.45f
+        ballControlTime = 0f
+        p.animState = Player.AnimState.KICK
+        p.actionCooldown = 0.4f
+        // 防守方头球解围 = 主动触球 → 越位旗解除
+        val os = offsideSide
+        if (os != null && p.teamSide != os) {
+            offsideFlagged.clear()
+            offsideSide = null
+            offsideTimer = 0f
+        }
+        onSound?.invoke("kick")
+    }
+
+    /** 持球权转移（同步 hasBall / 控球保护时间 / 接传球射门窗口 / 控制权自动切换 / 越位判定） */
     private fun assignBallOwner(p: Player) {
         if (ballOwner == p) return
+
+        // ===== 越位判定（简化版）：越位旗球员接球 → 回溯判罚 =====
+        val os = offsideSide
+        if (os != null) {
+            if (p.teamSide == os) {
+                val wasOffside = p in offsideFlagged
+                offsideFlagged.clear()
+                offsideSide = null
+                offsideTimer = 0f
+                if (wasOffside && phase == MatchPhase.PLAYING) {
+                    referee.whistleTimer = 0.9f
+                    onSound?.invoke("whistle")
+                    onBanner?.invoke("越位！回溯判罚")
+                    advantageTimer = 0f
+                    advantageSpot = null
+                    advantageSide = null
+                    ballVelocity = Vector3.ZERO
+                    ballHeightVelocity = 0f
+                    pendingSetPiece = SetPieceData(
+                        kind = SetPieceKind.FREE_KICK,
+                        spot = Vector3(p.position.x, 0f, p.position.z),
+                        attackingSide = opponentSide(p.teamSide)
+                    )
+                    phase = MatchPhase.FOUL_STOP
+                    freezeTimer = 0.9f
+                    return
+                }
+            } else {
+                // 防守方主动触球 → 越位旗解除
+                offsideFlagged.clear()
+                offsideSide = null
+                offsideTimer = 0f
+            }
+        }
+
         // 接到队友传球：短暂给出"射门"按钮（接球即射机会）
         val passer = lastPasser
         if (passer != null && p !== passer && passTravelTimer < 4f &&
@@ -444,8 +570,8 @@ class GameEngine(
      * 无球跑位：按"进攻/防守/松散球"三种局势分角色跑位，并施加队友最小间距分离力。
      *
      * 进攻（我方持球）：
-     * - 边锋拉边贴边线，随球前压保持宽度（拉开进攻宽度）
-     * - 中锋斜插身后空当，与持球者保持 13m 纵深（直塞目标）
+     * - 边锋拉边贴边线，随球前压保持宽度（拉开进攻宽度，也为传中拉出起球点）
+     * - 中锋斜插身后空当，与持球者保持 13m 纵深（直塞/传中目标）
      * - 中场：距持球者最近的 CM 回撤接应（7m 短传点），另一人拖后保护（攻守平衡）
      * - 边后卫沿边路套上（落后球 9m 的套边选项）
      * - 中后卫拖后，不越过球太多（保出球/回防支点）
@@ -706,6 +832,10 @@ class GameEngine(
         if (!outcome.isFoul) {
             // 合理冲撞 / 扑空：比赛继续
             if (contact != TackleRules.ContactKind.MISS) startTackleAnim(defender, type)
+            // 被过反馈：扑空的防守者踉跄失位（被过球员的反应动作）
+            if (contact == TackleRules.ContactKind.MISS && dist < 2.2f) {
+                defender.velocity = defender.velocity * 0.35f
+            }
             return
         }
 
@@ -771,6 +901,9 @@ class GameEngine(
         advantageTimer = 0f
         advantageSpot = null
         advantageSide = null
+        offsideFlagged.clear()
+        offsideSide = null
+        offsideTimer = 0f
 
         pendingSetPiece = SetPieceData(
             kind = if (isPenalty) SetPieceKind.PENALTY else SetPieceKind.FREE_KICK,
@@ -796,6 +929,33 @@ class GameEngine(
         val ownSign = if (offenderSide == GameState.TeamSide.HOME) -1f else 1f
         val z = spot.z * ownSign
         return kotlin.math.abs(spot.x) <= 20.16f && z >= GameState.FIELD_LENGTH / 2 - 16.5f && z <= GameState.FIELD_LENGTH / 2
+    }
+
+    // ==================== 越位（简化版 IFAB Law 11） ====================
+
+    /**
+     * 出脚瞬间判定：接应队友在对方半场、且比球和倒数第二名防守者都更接近球门线 → 挂越位旗。
+     * 旗 6 秒内有效；越位球员触球 → 回溯任意球；防守方主动触球 → 旗解除。
+     */
+    private fun computeOffside(passer: Player) {
+        offsideFlagged.clear()
+        offsideSide = passer.teamSide
+        offsideTimer = 6f
+        val atkSign = if (passer.teamSide == GameState.TeamSide.HOME) 1f else -1f
+        val halfL = GameState.FIELD_LENGTH / 2
+        val opponents = (if (passer.teamSide == GameState.TeamSide.HOME) awayPlayers else homePlayers)
+            .filter { !it.sentOff }
+        val defLines = opponents.map { atkSign * it.position.z }.sortedDescending()
+        val secondLast = defLines.getOrNull(1) ?: halfL
+        val ballLine = atkSign * ballPosition.z
+        val team = if (passer.teamSide == GameState.TeamSide.HOME) homePlayers else awayPlayers
+        for (mate in team) {
+            if (mate === passer || mate.sentOff || mate.isGoalkeeper) continue
+            val mateLine = atkSign * mate.position.z
+            if (mateLine > 0f && mateLine > ballLine && mateLine > secondLast) {
+                offsideFlagged.add(mate)
+            }
+        }
     }
 
     // ==================== 定位球（任意球 / 点球 / 界外球 / 球门球 / 角球） ====================
@@ -968,6 +1128,9 @@ class GameEngine(
         advantageTimer = 0f
         advantageSpot = null
         advantageSide = null
+        offsideFlagged.clear()
+        offsideSide = null
+        offsideTimer = 0f
         pendingSetPiece = SetPieceData(kind = kind, spot = spot, attackingSide = awardedSide)
         phase = MatchPhase.FOUL_STOP
         freezeTimer = if (kind == SetPieceKind.THROW_IN) 0.25f else 0.6f
@@ -1363,6 +1526,9 @@ class GameEngine(
         advantageTimer = 0f
         advantageSpot = null
         advantageSide = null
+        offsideFlagged.clear()
+        offsideSide = null
+        offsideTimer = 0f
         lastShotMissed = false
         stats = MatchStats()
         for (p in homePlayers + awayPlayers) {
@@ -1579,6 +1745,7 @@ class GameEngine(
         }
 
         if (bestTarget != null) {
+            computeOffside(player)   // 直塞同样可能造越位
             lastPasser = player
             passTravelTimer = 0f
             if (player.teamSide == GameState.TeamSide.HOME) stats.homePasses++ else stats.awayPasses++
@@ -1627,7 +1794,7 @@ class GameEngine(
         return Vector3(v.x * c - v.z * s, 0f, v.x * s + v.z * c)
     }
 
-    /** 通用传球（指定出球者）：通道拦截评分 + 受压迫低质量传球失误 */
+    /** 通用传球（指定出球者）：通道拦截评分 + 传中起球 + 受压迫低质量传球失误 */
     fun passFrom(player: Player) {
         if (ballOwner != player) return
 
@@ -1653,11 +1820,26 @@ class GameEngine(
         }
 
         if (bestTarget != null) {
+            computeOffside(player)   // 出脚瞬间挂越位旗
+
             lastPasser = player
             passTravelTimer = 0f
             if (player.teamSide == GameState.TeamSide.HOME) stats.homePasses++ else stats.awayPasses++
+
             var dir = (bestTarget.position - player.position).flatten().normalized()
             var speed = GameState.PASS_SPEED
+            var heightVel = 0.5f
+
+            // 传中判定：进攻三区边路起球 → 高弧线传中（为头球冲顶喂饼）
+            val atkSign = if (player.teamSide == GameState.TeamSide.HOME) 1f else -1f
+            val isCross = atkSign * player.position.z > GameState.FIELD_LENGTH / 2 - 32f &&
+                kotlin.math.abs(player.position.x) > 18f &&
+                (bestTarget.position.z - player.position.z) * atkSign > 0f
+            if (isCross) {
+                heightVel = 3.4f
+                speed *= 1.05f
+            }
+
             // 低质量传球判定：受压迫/刀山球 → 合理失误（传偏）
             var errorChance = 0f
             val pressure = nearestOpponentDist(player)
@@ -1668,8 +1850,9 @@ class GameEngine(
                 dir = rotateY(dir, dev.toFloat())
                 speed *= 0.85f
             }
+
             ballVelocity = dir * speed
-            ballHeightVelocity = 0.5f
+            ballHeightVelocity = heightVel
             ballOwner = null
             player.hasBall = false
             lastTouch = player
