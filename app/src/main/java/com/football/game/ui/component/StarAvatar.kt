@@ -30,15 +30,30 @@ enum class HairStyle3D {
 }
 
 /**
+ * 队服花纹（3D 渲染器按此绘制球衣）
+ */
+enum class KitPattern {
+    SOLID,      // 纯色（副色 = 袖子）
+    STRIPES,    // 竖条纹（巴萨/国米/尤文/AC米兰/马竞）
+    HOOPS,      // 横条纹
+    HALF,       // 左右拼色
+    SASH        // 斜杠（巴黎）
+}
+
+/**
  * 3D 球员外观描述
  * 颜色使用 ARGB Int，方便 OpenGL 渲染器直接使用
  */
 data class PlayerLook(
     val kitColor1: Int,   // 球衣主色
-    val kitColor2: Int,   // 球衣副色/球裤
+    val kitColor2: Int,   // 球衣副色（袖子/花纹）
     val skinColor: Int,   // 肤色
     val hairColor: Int,   // 发色
-    val hairStyle3D: HairStyle3D = HairStyle3D.SHORT
+    val hairStyle3D: HairStyle3D = HairStyle3D.SHORT,
+    val shortsColor: Int = kitColor2,   // 球裤颜色
+    val socksColor: Int = kitColor2,    // 球袜颜色
+    val pattern: KitPattern = KitPattern.SOLID,
+    val isGoalkeeper: Boolean = false
 )
 
 /** 发型（2D 头像用） */
