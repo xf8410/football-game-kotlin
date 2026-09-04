@@ -50,6 +50,9 @@ import kotlin.math.sqrt
  * - 解围：本方禁区附近己方持球时显示，大脚踢向前场
  * - 呼叫压位：防守时显示，按住呼叫第二名队友上前逼抢
  * - 切换：防守时显示，手动切到离球最近的队友
+ *
+ * 抽搐修复：所有情境按键都占用固定槽位（可见性只改透明度，不改布局），
+ * 大按钮位置固定不动 → 局势切换时按键不跳位、不抖动。
  */
 @Composable
 fun TouchControls(
@@ -76,52 +79,76 @@ fun TouchControls(
             }
         )
 
-        // 右侧：解围 + 大动作按钮 + 传球/直塞 或 呼叫压位/切换
-        Column(
+        // ===== 固定槽位布局（互不挤压，杜绝布局跳动）=====
+
+        // 底部行（大按钮左侧固定槽）：传球/直塞（有球）或 呼叫压位/切换（防守）
+        Row(
             modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalAlignment = Alignment.End
+                .align(Alignment.BottomEnd)
+                .padding(end = 122.dp, bottom = 96.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            if (showClearance) {
-                ActionButton(
-                    text = "解围",
-                    color = Color(0xFF8D6E63),
-                    onClick = { gameEngine.doClearance() }
-                )
+            SlotButton(visible = hasBall, text = "传球", color = Color(0xFF4CAF50)) {
+                gameEngine.doPass()
             }
+            SlotButton(visible = hasBall, text = "直塞", color = Color(0xFF2196F3)) {
+                gameEngine.doThroughBall()
+            }
+            SlotButton(visible = !hasBall && defending, text = "呼叫压位", color = Color(0xFF607D8B)) {
+                // 呼叫压位需要按住语义；点按等价于短暂呼叫
+                gameEngine.callPressing = true
+            }
+            SlotButton(visible = !hasBall && defending, text = "切换", color = Color(0xFF9C27B0)) {
+                gameEngine.switchToNearest()
+            }
+        }
+
+        // 顶部行（固定槽）：解围 | 空 | 呼叫压位 | 切换
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 190.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SlotButton(visible = showClearance, text = "解围", color = Color(0xFF8D6E63)) {
+                gameEngine.doClearance()
+            }
+            Box(modifier = Modifier.size(66.dp))
+            SlotButton(visible = !hasBall && defending, text = "呼叫压位", color = Color(0xFF607D8B)) {
+                gameEngine.callPressing = true
+            }
+            SlotButton(visible = !hasBall && defending, text = "切换", color = Color(0xFF9C27B0)) {
+                gameEngine.switchToNearest()
+            }
+        }
+
+        // 大动作按钮（固定槽位：右下，永远占位不跳动）
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 88.dp)
+        ) {
             ContextActionButton(
                 gameEngine = gameEngine,
                 mode = actionMode
             )
-            if (hasBall) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ActionButton(
-                        text = "传球",
-                        color = Color(0xFF4CAF50),
-                        onClick = { gameEngine.doPass() }
-                    )
-                    ActionButton(
-                        text = "直塞",
-                        color = Color(0xFF2196F3),
-                        onClick = { gameEngine.doThroughBall() }
-                    )
-                }
-            } else if (defending) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HoldActionButton(
-                        text = "呼叫压位",
-                        color = Color(0xFF607D8B),
-                        onHold = { gameEngine.callPressing = it }
-                    )
-                    ActionButton(
-                        text = "切换",
-                        color = Color(0xFF9C27B0),
-                        onClick = { gameEngine.switchToNearest() }
-                    )
-                }
-            }
+        }
+    }
+}
+
+/**
+ * 槽位按钮：visible=false 时整格透明且不可点，但布局占位不变 → 切换时无抖动
+ */
+@Composable
+private fun SlotButton(
+    visible: Boolean,
+    text: String,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Box(modifier = Modifier.size(66.dp)) {
+        if (visible) {
+            ActionButton(text = text, color = color, onClick = onClick)
         }
     }
 }
